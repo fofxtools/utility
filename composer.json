@@ -1,0 +1,44 @@
+{
+    "name": "fofx/utility",
+    "description": "Utilities library",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "FOfX\\Utility\\": "src/"
+        },
+        "files": [
+            "src/functions.php"
+        ]
+    },
+    "authors": [
+        {
+            "name": "fofx",
+            "email": "177870764+fofxtools@users.noreply.github.com"
+        }
+    ],
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.85",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12.3",
+        "orchestra/testbench": "^10.4"
+    },
+    "require": {
+        "laravel/framework": "^12.22",
+        "fofx/helper": "^1.2"
+    },
+    "scripts": {
+        "phpstan": "vendor/bin/phpstan analyse",
+        "analyse": "@phpstan",
+        "analyze": "@phpstan",
+        "phpunit": "vendor/bin/phpunit --color=always",
+        "test": "@phpunit",
+        "tests": "@phpunit",
+        "cs-fix": "vendor/bin/php-cs-fixer fix",
+        "cs-check": "vendor/bin/php-cs-fixer fix --dry-run --diff",
+        "cs-list": "vendor/bin/php-cs-fixer list-files"
+    },
+    "config": {
+        "process-timeout": 0
+    }
+}
