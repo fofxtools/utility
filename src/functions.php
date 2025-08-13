@@ -90,11 +90,11 @@ function extract_registrable_domain(string $url, bool $stripWww = true): string
     $publicSuffixList = Rules::fromPath($pslPath);
 
     // Extract hostname from URL if it contains a protocol
-    $hostname = parse_url($url, PHP_URL_HOST) ?? $url;
-    $domain   = Domain::fromIDNA2008($hostname);
+    $hostname  = parse_url($url, PHP_URL_HOST) ?? $url;
+    $domainObj = Domain::fromIDNA2008($hostname);
 
     // Use registrableDomain() to get the registrable domain
-    $result            = $publicSuffixList->resolve($domain);
+    $result            = $publicSuffixList->resolve($domainObj);
     $registrableDomain = $result->registrableDomain()->toString();
 
     // Strip the www if requested
@@ -103,4 +103,31 @@ function extract_registrable_domain(string $url, bool $stripWww = true): string
     }
 
     return $registrableDomain;
+}
+
+/**
+ * Validate if a domain has a valid registrable domain and suffix
+ *
+ * @param string $domain The domain to validate
+ *
+ * @return bool True if valid, false otherwise
+ */
+function is_valid_domain(string $domain): bool
+{
+    // Reject IPs
+    if (filter_var($domain, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+
+    try {
+        $pslPath          = download_public_suffix_list();
+        $publicSuffixList = Rules::fromPath($pslPath);
+        $domainObj        = Domain::fromIDNA2008($domain);
+        $result           = $publicSuffixList->resolve($domainObj);
+
+        // Must be a known suffix (ICANN or private) and have eTLD+1
+        return $result->suffix()->isKnown() && $result->registrableDomain()->value() !== null;
+    } catch (\Throwable) {
+        return false;
+    }
 }

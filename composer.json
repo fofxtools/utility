@@ -25,6 +25,7 @@
         "phpstan/phpstan-mockery": "^2.0"
     },
     "require": {
+        "php": "^8.3",
         "laravel/framework": "^12.22",
         "fofx/helper": "^1.2",
         "jeremykendall/php-domain-parser": "^6.4"

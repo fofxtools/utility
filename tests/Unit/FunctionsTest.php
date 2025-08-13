@@ -14,6 +14,7 @@ use Mockery;
 use function FOfX\Utility\get_tables;
 use function FOfX\Utility\download_public_suffix_list;
 use function FOfX\Utility\extract_registrable_domain;
+use function FOfX\Utility\is_valid_domain;
 
 class FunctionsTest extends TestCase
 {
@@ -95,6 +96,11 @@ class FunctionsTest extends TestCase
         $this->assertSame($expectedPath, $path);
         $this->assertFileExists($path);
         $this->assertSame($expectedContent, file_get_contents($path));
+
+        // Delete the fake response file if it was created
+        if (file_exists($expectedPath)) {
+            unlink($expectedPath);
+        }
     }
 
     public function test_download_public_suffix_list_throws_exception_on_download_failure(): void
@@ -113,7 +119,14 @@ class FunctionsTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Failed to download public suffix list');
 
-        download_public_suffix_list();
+        try {
+            download_public_suffix_list();
+        } finally {
+            // Delete the fake response file if it was created
+            if (file_exists($expectedPath)) {
+                unlink($expectedPath);
+            }
+        }
     }
 
     public static function provideExtractRegistrableDomainTestCases(): array
@@ -186,7 +199,48 @@ class FunctionsTest extends TestCase
     #[DataProvider('provideExtractRegistrableDomainTestCases')]
     public function testExtractRegistrableDomain(string $url, string $expected, bool $stripWww = true): void
     {
+        // Use local PSL file if it exists
+        $localPslPath = dirname(__DIR__, 2) . '/local/resources/public_suffix_list.dat';
+        if (!file_exists($localPslPath)) {
+            $this->markTestSkipped('Local PSL file not found at: ' . $localPslPath);
+        }
+
+        // Copy local PSL to test storage location
+        $testPslPath = storage_path('app/public_suffix_list.dat');
+        copy($localPslPath, $testPslPath);
+
         $actual = extract_registrable_domain($url, $stripWww);
         $this->assertEquals($expected, $actual);
+    }
+
+    public static function provideIsValidDomainCases(): array
+    {
+        return [
+            'simple domain'      => ['example.com', true],
+            'subdomain'          => ['sub.example.com', true],
+            'idn domain'         => ['müller.de', true],
+            'public suffix only' => ['co.uk', false],
+            'invalid tld'        => ['example.invalidtld', false],
+            'leading www'        => ['www.example.com', true],
+            'empty string'       => ['', false],
+            'just dot'           => ['.', false],
+            'space'              => [' example.com ', false],
+        ];
+    }
+
+    #[DataProvider('provideIsValidDomainCases')]
+    public function test_is_valid_domain(string $domain, bool $expected): void
+    {
+        // Use local PSL file if it exists
+        $localPslPath = dirname(__DIR__, 2) . '/local/resources/public_suffix_list.dat';
+        if (!file_exists($localPslPath)) {
+            $this->markTestSkipped('Local PSL file not found at: ' . $localPslPath);
+        }
+
+        // Copy local PSL to test storage location (tests use temporary storage)
+        $testPslPath = storage_path('app/public_suffix_list.dat');
+        copy($localPslPath, $testPslPath);
+
+        $this->assertSame($expected, is_valid_domain($domain));
     }
 }
