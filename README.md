@@ -38,6 +38,13 @@ To use PHP-CS-Fixer for code style:
 composer cs-fix
 ```
 
+### Test and the PSL file
+
+Since tests use temporary storage, to avoid network calls during tests. `public_suffix_list.dat` ([download here](https://publicsuffix.org/list/public_suffix_list.dat)) must be saved to to `local/resources/`.
+
+Tests then copy this file into temporary storage. If it is missing, tests are skipped.
+
+
 ## License
 
 MIT

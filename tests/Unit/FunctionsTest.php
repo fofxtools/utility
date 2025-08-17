@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace FOfX\Utility\Tests\Unit;
 
-use Orchestra\Testbench\TestCase;
+use FOfX\Utility\Tests\TestCase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -199,16 +199,6 @@ class FunctionsTest extends TestCase
     #[DataProvider('provideExtractRegistrableDomainTestCases')]
     public function testExtractRegistrableDomain(string $url, string $expected, bool $stripWww = true): void
     {
-        // Use local PSL file if it exists
-        $localPslPath = dirname(__DIR__, 2) . '/local/resources/public_suffix_list.dat';
-        if (!file_exists($localPslPath)) {
-            $this->markTestSkipped('Local PSL file not found at: ' . $localPslPath);
-        }
-
-        // Copy local PSL to test storage location
-        $testPslPath = storage_path('app/public_suffix_list.dat');
-        copy($localPslPath, $testPslPath);
-
         $actual = extract_registrable_domain($url, $stripWww);
         $this->assertEquals($expected, $actual);
     }
@@ -231,16 +221,6 @@ class FunctionsTest extends TestCase
     #[DataProvider('provideIsValidDomainCases')]
     public function test_is_valid_domain(string $domain, bool $expected): void
     {
-        // Use local PSL file if it exists
-        $localPslPath = dirname(__DIR__, 2) . '/local/resources/public_suffix_list.dat';
-        if (!file_exists($localPslPath)) {
-            $this->markTestSkipped('Local PSL file not found at: ' . $localPslPath);
-        }
-
-        // Copy local PSL to test storage location (tests use temporary storage)
-        $testPslPath = storage_path('app/public_suffix_list.dat');
-        copy($localPslPath, $testPslPath);
-
         $this->assertSame($expected, is_valid_domain($domain));
     }
 }
