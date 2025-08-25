@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Events\EventServiceProvider;
 use Illuminate\Database\DatabaseServiceProvider;
+use Illuminate\Filesystem\FilesystemServiceProvider;
 
 // Create the application container
 $app = new Application(
@@ -28,6 +29,7 @@ config(['database.default' => $databaseConnection]);
 // Register service providers
 $app->register(EventServiceProvider::class);
 $app->register(DatabaseServiceProvider::class);
+$app->register(FilesystemServiceProvider::class);
 
 // Set up basic paths
 $app->useStoragePath($app->basePath('storage'));
