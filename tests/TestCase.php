@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace FOfX\Utility\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
+use Illuminate\Support\Facades\Storage;
 
 class TestCase extends Orchestra
 {
+    // Use constant (not instance property) for access in both static setUpBeforeClass() and instance methods
+    protected const PSL_FILENAME          = 'public_suffix_list.dat';
     private static bool $pslSetupComplete = false;
 
     public static function setUpBeforeClass(): void
@@ -15,9 +18,18 @@ class TestCase extends Orchestra
         parent::setUpBeforeClass();
 
         // Check for PSL file required by domain validation tests
-        $localPslPath = dirname(__DIR__) . '/local/resources/public_suffix_list.dat';
+        $localPslPath = dirname(__DIR__) . '/local/resources/' . self::PSL_FILENAME;
         if (!file_exists($localPslPath)) {
             self::markTestSkipped("Domain validation tests require PSL file at: $localPslPath");
+        }
+    }
+
+    private function setupPslFile(): void
+    {
+        $localPslPath = dirname(__DIR__) . '/local/resources/' . self::PSL_FILENAME;
+        if (file_exists($localPslPath)) {
+            $pslContent = file_get_contents($localPslPath);
+            Storage::disk('local')->put(self::PSL_FILENAME, $pslContent);
         }
     }
 
@@ -25,16 +37,12 @@ class TestCase extends Orchestra
     {
         parent::setUp();
 
-        // Copy PSL file for domain validation in tests (once per test suite)
+        // Fake storage for consistent test environment
+        Storage::fake('local');
+
+        // Copy PSL file to faked storage (once per test suite)
         if (!self::$pslSetupComplete) {
-            $localPslPath = dirname(__DIR__) . '/local/resources/public_suffix_list.dat';
-            if (file_exists($localPslPath)) {
-                $testPslPath = storage_path('app/public_suffix_list.dat');
-                if (!file_exists(dirname($testPslPath))) {
-                    mkdir(dirname($testPslPath), 0755, true);
-                }
-                copy($localPslPath, $testPslPath);
-            }
+            $this->setupPslFile();
             self::$pslSetupComplete = true;
         }
     }

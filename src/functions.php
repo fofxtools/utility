@@ -7,6 +7,7 @@ namespace FOfX\Utility;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Pdp\Rules;
 use Pdp\Domain;
 use FOfX\Helper;
@@ -56,10 +57,10 @@ function get_tables(): array
  */
 function download_public_suffix_list(): string
 {
-    $path = storage_path('app/public_suffix_list.dat');
+    $filename = 'public_suffix_list.dat';
 
-    if (file_exists($path)) {
-        return $path;
+    if (Storage::disk('local')->exists($filename)) {
+        return Storage::disk('local')->path($filename);
     }
 
     $response = Http::get('https://publicsuffix.org/list/public_suffix_list.dat');
@@ -68,11 +69,9 @@ function download_public_suffix_list(): string
         throw new \RuntimeException('Failed to download public suffix list');
     }
 
-    if (!file_put_contents($path, $response->body())) {
-        throw new \RuntimeException('Failed to save public suffix list');
-    }
+    Storage::disk('local')->put($filename, $response->body());
 
-    return $path;
+    return Storage::disk('local')->path($filename);
 }
 
 /**

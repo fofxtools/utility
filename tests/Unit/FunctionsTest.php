@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Mockery;
 
 use function FOfX\Utility\get_tables;
@@ -64,53 +65,34 @@ class FunctionsTest extends TestCase
 
     public function test_download_public_suffix_list_returns_path_when_file_exists(): void
     {
-        // Create a test file
-        $expectedPath    = storage_path('app/public_suffix_list.dat');
-        $expectedContent = 'public suffix list content';
-        file_put_contents($expectedPath, $expectedContent);
-
+        // File already exists from TestCase setup
         $path = download_public_suffix_list();
 
-        $this->assertSame($expectedPath, $path);
-        $this->assertFileExists($path);
-        $this->assertSame($expectedContent, file_get_contents($path));
+        $this->assertTrue(Storage::disk('local')->exists(self::PSL_FILENAME));
+        $this->assertEquals(Storage::disk('local')->path(self::PSL_FILENAME), $path);
     }
 
     public function test_download_public_suffix_list_downloads_when_file_does_not_exist(): void
     {
-        // Create a test file
-        $expectedPath    = storage_path('app/public_suffix_list.dat');
+        // Remove the file that TestCase setup created
+        Storage::disk('local')->delete(self::PSL_FILENAME);
+
         $expectedContent = 'public suffix list content';
-
-        // Ensure file doesn't exist
-        if (file_exists($expectedPath)) {
-            unlink($expectedPath);
-        }
-
         Http::fake([
             'publicsuffix.org/list/public_suffix_list.dat' => Http::response($expectedContent),
         ]);
 
         $path = download_public_suffix_list();
 
-        $this->assertSame($expectedPath, $path);
-        $this->assertFileExists($path);
-        $this->assertSame($expectedContent, file_get_contents($path));
-
-        // Delete the fake response file if it was created
-        if (file_exists($expectedPath)) {
-            unlink($expectedPath);
-        }
+        $this->assertTrue(Storage::disk('local')->exists(self::PSL_FILENAME));
+        $this->assertEquals($expectedContent, Storage::disk('local')->get(self::PSL_FILENAME));
+        $this->assertEquals(Storage::disk('local')->path(self::PSL_FILENAME), $path);
     }
 
     public function test_download_public_suffix_list_throws_exception_on_download_failure(): void
     {
-        $expectedPath = storage_path('app/public_suffix_list.dat');
-
-        // Ensure file doesn't exist
-        if (file_exists($expectedPath)) {
-            unlink($expectedPath);
-        }
+        // Remove the file that TestCase setup created
+        Storage::disk('local')->delete(self::PSL_FILENAME);
 
         Http::fake([
             'publicsuffix.org/list/public_suffix_list.dat' => Http::response('', 500),
@@ -119,14 +101,7 @@ class FunctionsTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Failed to download public suffix list');
 
-        try {
-            download_public_suffix_list();
-        } finally {
-            // Delete the fake response file if it was created
-            if (file_exists($expectedPath)) {
-                unlink($expectedPath);
-            }
-        }
+        download_public_suffix_list();
     }
 
     public static function provideExtractRegistrableDomainTestCases(): array
