@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Pdp\Rules;
 use Pdp\Domain;
 use FOfX\Helper;
+use Symfony\Component\DomCrawler\Crawler;
 
 /**
  * List all tables in the database in driver agnostic way
@@ -129,4 +130,88 @@ function is_valid_domain(string $domain): bool
     } catch (\Throwable) {
         return false;
     }
+}
+
+/**
+ * List suggested CSS selectors for embedded JSON script tags found in the HTML.
+ * Emits precise selectors of the form 'script#<id>' for scripts that have an id.
+ *
+ * @param string $html          The HTML to scan
+ * @param bool   $includeLdJson Whether to include application/ld+json scripts
+ * @param bool   $unique        Whether to de-duplicate the returned selectors
+ *
+ * @return string[] Array of selector strings (e.g., ['script#perseus-initial-props'])
+ */
+function list_embedded_json_selectors(string $html, bool $includeLdJson = true, bool $unique = true): array
+{
+    $crawler  = new Crawler($html);
+    $selector = 'script[type="application/json"]';
+
+    if ($includeLdJson) {
+        $selector .= ',script[type="application/ld+json"]';
+    }
+
+    $nodes = $crawler->filter($selector);
+    $out   = [];
+
+    $nodes->each(function (Crawler $n) use (&$out) {
+        $id = trim((string)($n->attr('id') ?? ''));
+        if ($id !== '') {
+            $out[] = 'script#' . $id;
+        }
+    });
+
+    if ($unique) {
+        $out = array_values(array_unique($out));
+    }
+
+    return $out;
+}
+
+/**
+ * Extract embedded JSON blocks from HTML.
+ * Scans for <script type="application/json"> (and optionally ld+json) and returns
+ * an array of blocks with id, type, bytes, attrs and decoded json.
+ *
+ * @param string   $html          HTML content to scan
+ * @param bool     $includeLdJson Include application/ld+json scripts (default true)
+ * @param bool     $assoc         Decode JSON as associative arrays (default true)
+ * @param int|null $limit         Max number of blocks to return (null = no limit)
+ *
+ * @return array[] Each item: [id,type,bytes,attrs=>[...],json=>mixed]
+ */
+function extract_embedded_json_blocks(string $html, bool $includeLdJson = true, bool $assoc = true, ?int $limit = null): array
+{
+    $crawler  = new Crawler($html);
+    $selector = 'script[type="application/json"]';
+
+    if ($includeLdJson) {
+        $selector .= ',script[type="application/ld+json"]';
+    }
+
+    $nodes = $crawler->filter($selector);
+    $out   = [];
+    $count = 0;
+
+    $nodes->each(function (Crawler $n) use (&$out, &$count, $limit, $assoc) {
+        if ($limit !== null && $count >= $limit) {
+            return;
+        }
+
+        $text  = trim($n->text(''));
+        $out[] = [
+            'id'    => $n->attr('id') ?? '',
+            'type'  => $n->attr('type') ?? '',
+            'bytes' => strlen($text),
+            'attrs' => [
+                'id'    => $n->attr('id') ?? null,
+                'class' => $n->attr('class') ?? null,
+            ],
+            'json' => json_decode($text, $assoc, 512, JSON_BIGINT_AS_STRING),
+        ];
+
+        $count++;
+    });
+
+    return $out;
 }

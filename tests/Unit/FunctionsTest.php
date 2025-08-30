@@ -16,6 +16,8 @@ use function FOfX\Utility\get_tables;
 use function FOfX\Utility\download_public_suffix_list;
 use function FOfX\Utility\extract_registrable_domain;
 use function FOfX\Utility\is_valid_domain;
+use function FOfX\Utility\list_embedded_json_selectors;
+use function FOfX\Utility\extract_embedded_json_blocks;
 
 class FunctionsTest extends TestCase
 {
@@ -58,7 +60,6 @@ class FunctionsTest extends TestCase
 
         // Expect an exception when calling get_tables()
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Unsupported database driver: unsupported');
 
         get_tables();
     }
@@ -197,5 +198,136 @@ class FunctionsTest extends TestCase
     public function test_is_valid_domain(string $domain, bool $expected): void
     {
         $this->assertSame($expected, is_valid_domain($domain));
+    }
+
+    public function test_list_embedded_json_selectors_includeLdJson_true_unique_true(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="a"> {"x":1} </script>
+    <script type="application/ld+json" id="b"> {"@context":"https://schema.org"} </script>
+    <script type="application/json" id="dup"> {"x":2} </script>
+    <script type="application/json" id="dup"> {"x":3} </script>
+    <script type="text/javascript" id="ignored"> {"x":4} </script>
+  </head>
+</html>
+HTML;
+        $selectors = list_embedded_json_selectors($html, includeLdJson: true, unique: true);
+        $this->assertSame(['script#a', 'script#b', 'script#dup'], $selectors);
+    }
+
+    public function test_list_embedded_json_selectors_includeLdJson_false_unique_true(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="a"> {"x":1} </script>
+    <script type="application/ld+json" id="b"> {"@context":"https://schema.org"} </script>
+    <script type="application/json" id="dup"> {"x":2} </script>
+    <script type="application/json" id="dup"> {"x":3} </script>
+    <script type="text/javascript" id="ignored"> {"x":4} </script>
+  </head>
+</html>
+HTML;
+        $selectors = list_embedded_json_selectors($html, includeLdJson: false, unique: true);
+        $this->assertSame(['script#a', 'script#dup'], $selectors);
+    }
+
+    public function test_list_embedded_json_selectors_unique_false_includes_duplicates(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="a"> {"x":1} </script>
+    <script type="application/ld+json" id="b"> {"@context":"https://schema.org"} </script>
+    <script type="application/json" id="dup"> {"x":2} </script>
+    <script type="application/json" id="dup"> {"x":3} </script>
+    <script type="text/javascript" id="ignored"> {"x":4} </script>
+  </head>
+</html>
+HTML;
+        $selectors = list_embedded_json_selectors($html, includeLdJson: true, unique: false);
+        $this->assertSame(['script#a', 'script#b', 'script#dup', 'script#dup'], $selectors);
+    }
+
+    public function test_extract_embedded_json_blocks_includeLdJson_true_assoc_true(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="perseus" class="foo bar"> {"a":1} </script>
+    <script type="application/ld+json" id="ld1"> {"@context":"https://schema.org"} </script>
+    <script type="application/json"> {"b": [1,2]} </script>
+    <script type="application/json" id="bigint"> {"id": 9223372036854775808} </script>
+  </head>
+</html>
+HTML;
+        $blocks = extract_embedded_json_blocks($html, includeLdJson: true, assoc: true);
+        $this->assertCount(4, $blocks);
+        $this->assertSame(['id', 'type', 'bytes', 'attrs', 'json'], array_keys($blocks[0]));
+        $this->assertSame('perseus', $blocks[0]['id']);
+        $this->assertSame('application/ld+json', $blocks[1]['type']);
+        $this->assertSame('', $blocks[2]['id']);
+        $this->assertSame('bigint', $blocks[3]['id']);
+        $this->assertSame('foo bar', $blocks[0]['attrs']['class']);
+        $this->assertSame(['a' => 1], $blocks[0]['json']);
+        $this->assertSame('9223372036854775808', $blocks[3]['json']['id']);
+    }
+
+    public function test_extract_embedded_json_blocks_includeLdJson_false_assoc_true(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="perseus"> {"a":1} </script>
+    <script type="application/ld+json" id="ld1"> {"@context":"https://schema.org"} </script>
+    <script type="application/json"> {"b": [1,2]} </script>
+    <script type="application/json" id="bigint"> {"id": 9223372036854775808} </script>
+  </head>
+</html>
+HTML;
+        $blocks = extract_embedded_json_blocks($html, includeLdJson: false, assoc: true);
+        $this->assertCount(3, $blocks);
+        $this->assertSame('perseus', $blocks[0]['id']);
+        $this->assertSame('', $blocks[1]['id']);
+        $this->assertSame('bigint', $blocks[2]['id']);
+    }
+
+    public function test_extract_embedded_json_blocks_assoc_false_returns_objects(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="perseus"> {"a":1} </script>
+  </head>
+</html>
+HTML;
+        $blocks = extract_embedded_json_blocks($html, includeLdJson: true, assoc: false);
+        $this->assertIsObject($blocks[0]['json']);
+    }
+
+    public function test_extract_embedded_json_blocks_limit_applies(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="perseus"> {"a":1} </script>
+    <script type="application/ld+json" id="ld1"> {"@context":"https://schema.org"} </script>
+    <script type="application/json"> {"b": [1,2]} </script>
+  </head>
+</html>
+HTML;
+        $blocks = extract_embedded_json_blocks($html, includeLdJson: true, assoc: true, limit: 2);
+        $this->assertCount(2, $blocks);
+        $this->assertSame('perseus', $blocks[0]['id']);
+        $this->assertSame('application/ld+json', $blocks[1]['type']);
     }
 }

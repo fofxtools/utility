@@ -33,7 +33,9 @@
         "php": "^8.3",
         "laravel/framework": "^12.22",
         "fofx/helper": "^1.2",
-        "jeremykendall/php-domain-parser": "^6.4"
+        "jeremykendall/php-domain-parser": "^6.4",
+        "symfony/dom-crawler": "^7.3",
+        "symfony/css-selector": "^7.3"
     },
     "scripts": {
         "phpstan": "vendor/bin/phpstan analyse",
