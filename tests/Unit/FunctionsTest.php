@@ -16,8 +16,10 @@ use function FOfX\Utility\get_tables;
 use function FOfX\Utility\download_public_suffix_list;
 use function FOfX\Utility\extract_registrable_domain;
 use function FOfX\Utility\is_valid_domain;
+use function FOfX\Utility\extract_canonical_url;
 use function FOfX\Utility\list_embedded_json_selectors;
 use function FOfX\Utility\extract_embedded_json_blocks;
+use function FOfX\Utility\save_json_blocks_to_file;
 
 class FunctionsTest extends TestCase
 {
@@ -200,6 +202,137 @@ class FunctionsTest extends TestCase
         $this->assertSame($expected, is_valid_domain($domain));
     }
 
+    public static function provideExtractCanonicalUrlTestCases(): array
+    {
+        return [
+            // Valid HTML with canonical URL
+            'basic canonical URL' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com"></head></html>',
+                'expected' => 'https://example.com',
+            ],
+            'canonical with multiple attributes' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com/page" type="text/html"></head></html>',
+                'expected' => 'https://example.com/page',
+            ],
+            'canonical with complex URL' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com/path/to/page?param=value&other=test"></head></html>',
+                'expected' => 'https://example.com/path/to/page?param=value&other=test',
+            ],
+            'canonical with whitespace in href' => [
+                'html'     => '<html><head><link rel="canonical" href="  https://example.com  "></head></html>',
+                'expected' => 'https://example.com',
+            ],
+
+            // Multiple canonical tags - should return first one
+            'multiple canonical tags' => [
+                'html'     => '<html><head><link rel="canonical" href="https://first.com"><link rel="canonical" href="https://second.com"></head></html>',
+                'expected' => 'https://first.com',
+            ],
+
+            // Mixed with other link tags
+            'canonical among other links' => [
+                'html'     => '<html><head><link rel="stylesheet" href="style.css"><link rel="canonical" href="https://example.com"><link rel="icon" href="favicon.ico"></head></html>',
+                'expected' => 'https://example.com',
+            ],
+
+            // Space-separated rel values (HTML spec compliance)
+            'canonical with nofollow' => [
+                'html'     => '<html><head><link rel="canonical nofollow" href="https://example.com/page"></head></html>',
+                'expected' => 'https://example.com/page',
+            ],
+            'nofollow canonical reversed order' => [
+                'html'     => '<html><head><link rel="nofollow canonical" href="https://example.com/page"></head></html>',
+                'expected' => 'https://example.com/page',
+            ],
+            'canonical with multiple rel values' => [
+                'html'     => '<html><head><link rel="canonical stylesheet nofollow" href="https://example.com/page"></head></html>',
+                'expected' => 'https://example.com/page',
+            ],
+            'canonical with extra whitespace in rel' => [
+                'html'     => '<html><head><link rel="  canonical   nofollow  " href="https://example.com/page"></head></html>',
+                'expected' => 'https://example.com/page',
+            ],
+            'rel values without canonical should not match' => [
+                'html'     => '<html><head><link rel="nofollow alternate stylesheet" href="https://example.com/page"></head></html>',
+                'expected' => null,
+            ],
+
+            // Real-world like HTML structure
+            'realistic HTML structure' => [
+                'html'     => '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Test Page</title><link rel="canonical" href="https://www.fiverr.com/vpross/create-logo"><meta name="description" content="Test"></head><body></body></html>',
+                'expected' => 'https://www.fiverr.com/vpross/create-logo',
+            ],
+
+            // Cases that should return null
+            'no canonical tag' => [
+                'html'     => '<html><head><title>No canonical</title></head></html>',
+                'expected' => null,
+            ],
+            'empty href' => [
+                'html'     => '<html><head><link rel="canonical" href=""></head></html>',
+                'expected' => null,
+            ],
+            'whitespace only href' => [
+                'html'     => '<html><head><link rel="canonical" href="   "></head></html>',
+                'expected' => null,
+            ],
+            'link without href attribute' => [
+                'html'     => '<html><head><link rel="canonical"></head></html>',
+                'expected' => null,
+            ],
+            'empty HTML' => [
+                'html'     => '',
+                'expected' => null,
+            ],
+            'only text content' => [
+                'html'     => 'This is just plain text with no HTML tags',
+                'expected' => null,
+            ],
+
+            // Edge cases and malformed HTML
+            'malformed HTML - unclosed tags' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com"<title>Test</head></html>',
+                'expected' => 'https://example.com',
+            ],
+            'malformed HTML - broken structure' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com"></title></head></html>',
+                'expected' => 'https://example.com',
+            ],
+            'canonical tag in body instead of head' => [
+                'html'     => '<html><body><link rel="canonical" href="https://example.com"></body></html>',
+                'expected' => 'https://example.com',
+            ],
+
+            // Different case variations - element/attribute names in HTML are not case-sensitive
+            'uppercase rel attribute' => [
+                'html'     => '<html><head><link REL="canonical" href="https://example.com"></head></html>',
+                'expected' => 'https://example.com',
+            ],
+            // DomCrawler's CSS attribute value matching is case-sensitive
+            'mixed case canonical value - should not match' => [
+                'html'     => '<html><head><link rel="CANONICAL" href="https://example.com"></head></html>',
+                'expected' => null,
+            ],
+
+            // URLs with special characters
+            'URL with special characters' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com/path?param=value&other=test#anchor"></head></html>',
+                'expected' => 'https://example.com/path?param=value&other=test#anchor',
+            ],
+            'URL with encoded characters' => [
+                'html'     => '<html><head><link rel="canonical" href="https://example.com/search?q=hello%20world"></head></html>',
+                'expected' => 'https://example.com/search?q=hello%20world',
+            ],
+        ];
+    }
+
+    #[DataProvider('provideExtractCanonicalUrlTestCases')]
+    public function test_extract_canonical_url(string $html, ?string $expected): void
+    {
+        $actual = extract_canonical_url($html);
+        $this->assertSame($expected, $actual);
+    }
+
     public function test_list_embedded_json_selectors_includeLdJson_true_unique_true(): void
     {
         $html = <<<'HTML'
@@ -329,5 +462,179 @@ HTML;
         $this->assertCount(2, $blocks);
         $this->assertSame('perseus', $blocks[0]['id']);
         $this->assertSame('application/ld+json', $blocks[1]['type']);
+    }
+
+    public function test_save_json_blocks_to_file_without_selector_single_block(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="only-data">{"singleBlock": true}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-no-selector-single.json';
+        $result   = save_json_blocks_to_file($html, $filename);
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent   = Storage::disk('local')->get($filename);
+        $decodedContent = json_decode($savedContent, true);
+
+        // Should be unwrapped since there's only one block
+        $this->assertEquals(['singleBlock' => true], $decodedContent);
+    }
+
+    public function test_save_json_blocks_to_file_without_selector_multiple_blocks(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="block1">{"data": 1}</script>
+    <script type="application/json" id="block2">{"data": 2}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-no-selector-multiple.json';
+        $result   = save_json_blocks_to_file($html, $filename);
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent   = Storage::disk('local')->get($filename);
+        $decodedContent = json_decode($savedContent, true);
+
+        // Should be array since there are multiple blocks
+        $this->assertEquals([['data' => 1], ['data' => 2]], $decodedContent);
+    }
+
+    public function test_save_json_blocks_to_file_with_selector_single_block(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="perseus-initial-props">{"userId": 123, "settings": {"theme": "dark"}}</script>
+    <script type="application/json" id="other-data">{"otherData": true}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-perseus.json';
+        $result   = save_json_blocks_to_file($html, $filename, 'perseus-initial-props');
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent   = Storage::disk('local')->get($filename);
+        $decodedContent = json_decode($savedContent, true);
+
+        // Should be unwrapped since there's only one block
+        $this->assertEquals(['userId' => 123, 'settings' => ['theme' => 'dark']], $decodedContent);
+    }
+
+    public function test_save_json_blocks_to_file_with_selector_multiple_blocks(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="data">{"block": 1}</script>
+    <script type="application/json" id="data">{"block": 2}</script>
+    <script type="application/json" id="other">{"other": true}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-multiple.json';
+        $result   = save_json_blocks_to_file($html, $filename, 'data');
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent   = Storage::disk('local')->get($filename);
+        $decodedContent = json_decode($savedContent, true);
+
+        // Should be array since there are multiple blocks
+        $this->assertEquals([['block' => 1], ['block' => 2]], $decodedContent);
+    }
+
+    public function test_save_json_blocks_to_file_with_selector_no_matches(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="other-data">{"otherData": true}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-no-matches.json';
+        $result   = save_json_blocks_to_file($html, $filename, 'non-existent-id');
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent   = Storage::disk('local')->get($filename);
+        $decodedContent = json_decode($savedContent, true);
+
+        // Should be empty array
+        $this->assertEquals([], $decodedContent);
+    }
+
+    public function test_save_json_blocks_to_file_prettyPrint_false(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="data">{"test": "value"}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-compact.json';
+        $result   = save_json_blocks_to_file($html, $filename, 'data', false);
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent = Storage::disk('local')->get($filename);
+
+        // Should be compact JSON (no pretty printing)
+        $this->assertEquals('{"test":"value"}', $savedContent);
+    }
+
+    public function test_save_json_blocks_to_file_json_flags_unescaped(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <script type="application/json" id="data">{"url": "https://example.com/path?param=value&other=test", "unicode": "café"}</script>
+  </head>
+</html>
+HTML;
+
+        $filename = 'test-flags.json';
+        $result   = save_json_blocks_to_file($html, $filename, 'data');
+
+        $this->assertEquals($filename, $result);
+        $this->assertTrue(Storage::disk('local')->exists($filename));
+
+        $savedContent = Storage::disk('local')->get($filename);
+
+        // Should contain unescaped slashes and unicode
+        $this->assertStringContainsString('https://example.com/path', $savedContent);
+        $this->assertStringContainsString('&other=test', $savedContent);
+        $this->assertStringContainsString('café', $savedContent);
+        $this->assertStringNotContainsString('\/', $savedContent);
+        $this->assertStringNotContainsString('\\u0026', $savedContent);
     }
 }

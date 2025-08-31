@@ -24,3 +24,13 @@ This document tracks various issues encountered during development and their sol
   5. Added `autoload-dev` section to `composer.json` for proper test class autoloading
 - **Efficiency**: Static flag prevents multiple unnecessary file copies across all test methods, improving test performance
 - **Location**: See implementation in `tests/TestCase.php` and updated `tests/Unit/FunctionsTest.php`.
+
+#### JSON_BIGINT_AS_STRING Ampersand Escaping Issue (8-31-2025)
+- **Issue**: The `save_json_blocks_to_file()` function was escaping ampersand characters (`&`) as `\u0026` in JSON output, even when using `JSON_UNESCAPED_UNICODE` flag.
+- **Root Cause**: `JSON_BIGINT_AS_STRING` and `JSON_HEX_AMP` both have the same numeric value (2) in PHP. Using `JSON_BIGINT_AS_STRING` in `json_encode()` accidentally enabled `JSON_HEX_AMP`, causing ampersands to be escaped.
+- **Discovery Process**: 
+  1. Created debug script (`/tmp/debug_json_flags.php`) to test various flag combinations
+  2. Found that any combination including `JSON_BIGINT_AS_STRING` caused `&` → `\u0026` escaping
+  3. Research revealed the flag value conflict: both constants have value 2
+- **Solution**: Removed `JSON_BIGINT_AS_STRING` from `save_json_blocks_to_file()` JSON encoding flags. This flag is still correctly used in `extract_embedded_json_blocks()` during the JSON decode phase where it belongs.
+- **Note**: `JSON_BIGINT_AS_STRING` is for JSON **decoding**, not for **encoding**. The `extract_embedded_json_blocks()` function correctly uses this flag in `json_decode()` to preserve precision of large numbers from HTML.

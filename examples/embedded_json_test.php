@@ -17,6 +17,7 @@ $selectors = list_embedded_json_selectors($html, includeLdJson: true);
 
 // Extract blocks (decoded as associative arrays by default)
 $blocks = extract_embedded_json_blocks($html, includeLdJson: true, assoc: true);
+//print_r($blocks);
 
 // Pick a block (ID match if present)
 $index = 0;

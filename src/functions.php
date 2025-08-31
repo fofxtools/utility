@@ -133,6 +133,32 @@ function is_valid_domain(string $domain): bool
 }
 
 /**
+ * Extract the canonical URL from an HTML string
+ *
+ * @param string $html The HTML content to extract canonical URL from
+ *
+ * @return string|null The canonical URL if found, null otherwise
+ */
+function extract_canonical_url(string $html): ?string
+{
+    try {
+        $crawler = new Crawler($html);
+    } catch (\InvalidArgumentException $e) {
+        return null;
+    }
+
+    $canonicalNodes = $crawler->filter('link[rel~="canonical"]');
+
+    if ($canonicalNodes->count() === 0) {
+        return null;
+    }
+
+    $href = $canonicalNodes->first()->attr('href');
+
+    return $href !== null && trim($href) !== '' ? trim($href) : null;
+}
+
+/**
  * List suggested CSS selectors for embedded JSON script tags found in the HTML.
  * Emits precise selectors of the form 'script#<id>' for scripts that have an id.
  *
@@ -170,8 +196,8 @@ function list_embedded_json_selectors(string $html, bool $includeLdJson = true, 
 
 /**
  * Extract embedded JSON blocks from HTML.
- * Scans for <script type="application/json"> (and optionally ld+json) and returns
- * an array of blocks with id, type, bytes, attrs and decoded json.
+ * Scans for <script type="application/json"> (and optionally ld+json) and returns an
+ * array of blocks with additional metadata: id, type, bytes, attrs. And also the decoded json.
  *
  * @param string   $html          HTML content to scan
  * @param bool     $includeLdJson Include application/ld+json scripts (default true)
@@ -214,4 +240,56 @@ function extract_embedded_json_blocks(string $html, bool $includeLdJson = true, 
     });
 
     return $out;
+}
+
+/**
+ * Save JSON blocks extracted from HTML to a file with optional filtering by selector ID
+ *
+ * @param string      $html        The HTML content to extract blocks from
+ * @param string      $filename    The filename to save to (relative to storage/app)
+ * @param string|null $selectorId  Optional selector ID to filter blocks (e.g., 'perseus-initial-props')
+ * @param bool        $prettyPrint Whether to pretty-print JSON (default: true)
+ *
+ * @throws \RuntimeException If the file cannot be written
+ *
+ * @return string The relative path to the saved file
+ */
+function save_json_blocks_to_file(string $html, string $filename, ?string $selectorId = null, bool $prettyPrint = true): string
+{
+    $blocks = extract_embedded_json_blocks($html);
+
+    // Filter by selector ID if provided
+    if ($selectorId !== null) {
+        $blocks = array_filter($blocks, fn ($block) => $block['id'] === $selectorId);
+    }
+
+    // Extract only the JSON content, not metadata
+    $jsonData = array_map(fn ($block) => $block['json'], $blocks);
+
+    // Convert to array values to reset keys
+    $jsonData = array_values($jsonData);
+
+    // Encode JSON with optional pretty printing
+    $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE;
+    if ($prettyPrint) {
+        $jsonFlags |= JSON_PRETTY_PRINT;
+    }
+
+    // Unwrap single item results for better UX
+    if (count($jsonData) === 1) {
+        $json = json_encode($jsonData[0], $jsonFlags);
+    } else {
+        $json = json_encode($jsonData, $jsonFlags);
+    }
+
+    if ($json === false) {
+        throw new \RuntimeException('Failed to encode blocks as JSON');
+    }
+
+    // Save to storage
+    if (!Storage::disk('local')->put($filename, $json)) {
+        throw new \RuntimeException("Failed to write file: $filename");
+    }
+
+    return $filename;
 }
