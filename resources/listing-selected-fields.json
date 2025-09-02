@@ -1,0 +1,198 @@
+{
+    "categoryIds": {
+        "categoryId": "3",
+        "subCategoryId": "49",
+		"nestedSubCategoryId": null
+    },
+    "activeFilters": [],
+    "currency": {
+        "name": "USD",
+        "rate": 1,
+        "symbol": "$"
+    },
+    "listingAttributes": {
+        "id": "6e6b147e4bec476bba9cf0b5b81fca22",
+        "sortBy": "rating",
+        "offset": 0,
+        "platform": "desktop"
+    },
+    "rawListingData": {
+        "has_more": true
+    },
+    "countryCode": "US",
+    "assumedLanguage": "en",
+    "displayData": {
+        "categoryName": "Graphics & Design",
+        "subCategoryName": "Logo Design",
+		"nestedSubCategoryName": null,
+        "cachedSlug": "creative-logo-design",
+        "name": "Logo Design"
+    },
+    "appData": {
+        "pagination": {
+            "page": 1,
+            "page_size": 48,
+            "total": 215797
+        }
+    },
+    "listings": [
+        {
+            "gigs": [
+                {
+                    "gigId": 69345221,
+                    "pos": 0,
+                    "type": "promoted_gigs",
+                    "auction": {
+                        "id": "18175d52-25b2-4d68-821d-10d37f8f320d"
+                    },
+                    "is_fiverr_choice": false,
+                    "packages": {
+                        "recommended": {
+                            "id": 1,
+                            "extra_fast": false,
+                            "price": 75,
+                            "duration": 4,
+                            "price_tier": 0,
+                            "type": "cheapest"
+                        }
+                    },
+                    "category_id": 3,
+                    "sub_category_id": 49,
+                    "nested_sub_category_id": 0,
+                    "is_pro": false,
+                    "is_featured": false,
+                    "cached_slug": "create-brand-logo-identity-and-website",
+                    "title": "design a professional and beautiful logo",
+                    "seller_name": "camilozuluagaf",
+                    "seller_id": 36461113,
+                    "seller_country": "CO",
+                    "seller_img": "https://fiverr-res.cloudinary.com/t_profile_thumb,q_auto,f_auto/attachments/profile/photo/da790eb69c1fe8d7427cc32f3878bbf0-1734975414328/dedfb9eb-2cfa-4432-8462-ea4cdce3b6bf.jpg",
+                    "seller_display_name": "Camilo",
+                    "seller_online": false,
+                    "status": "APPROVED",
+                    "offer_consultation": true,
+                    "seller_languages": [],
+                    "recurring_options": [],
+                    "personalized_pricing_fail": false,
+                    "has_recurring_option": true,
+                    "buying_review_rating_count": 5538,
+                    "buying_review_rating": 4.8,
+                    "seller_url": "/camilozuluagaf",
+                    "seller_level": "top_rated_seller",
+                    "seller_rating": {
+                        "count": 5763,
+                        "score": 4.8905787
+                    },
+                    "gig_url": "/camilozuluagaf/create-brand-logo-identity-and-website",
+                    "is_seller_unavailable": false,
+                    "price_i": 75,
+                    "package_i": 1,
+                    "extra_fast": false,
+                    "num_of_packages": 3,
+                    "u_id": "69345221_0"
+                }
+            ]
+        }
+    ],
+    "facets": {
+        "file_format": [],
+        "has_hourly": [
+            {
+                "id": "true",
+                "count": 7927
+            }
+        ],
+        "is_agency": [
+            {
+                "id": "true",
+                "count": 62
+            }
+        ],
+        "is_pa_online": [
+            {
+                "id": "false",
+                "count": 215108
+            },
+            {
+                "id": "true",
+                "count": 689
+            }
+        ],
+        "is_seller_online": [
+            {
+                "id": "true",
+                "count": 8265
+            }
+        ],
+        "leaf_categories": [
+            {
+                "id": "49",
+                "parentId": "3",
+                "type": "sub_category",
+                "count": 215797
+            }
+        ],
+        "package_includes": [],
+        "pro": [
+            {
+                "id": "false",
+                "count": 215552
+            },
+            {
+                "id": "true",
+                "count": 245
+            }
+        ],
+        "seller_language": [],
+        "seller_level": [
+            {
+                "id": "na",
+                "count": 184839
+            },
+            {
+                "id": "level_one_seller",
+                "count": 14940
+            },
+            {
+                "id": "level_two_seller",
+                "count": 14905
+            },
+            {
+                "id": "top_rated_seller",
+                "count": 1113
+            }
+        ],
+        "seller_location": [],
+        "style": [],
+        "sub_categories": [
+            {
+                "id": "49",
+                "count": 215797
+            }
+        ],
+        "service_offerings": [
+            {
+                "id": "offer_consultation",
+                "count": 1761
+            },
+            {
+                "id": "subscription",
+                "count": 7270
+            }
+        ],
+        "nested_sub_categories": []
+    },
+    "priceBucketsSkeleton": [],
+    "pricingFactorSkeleton": [],
+    "tracking": {
+        "isNonExperiential": false,
+        "fiverrChoiceGigPosition": 5,
+        "hasFiverrChoiceGigs": true,
+        "hasPromotedGigs": true,
+        "promotedGigsCount": 20,
+        "searchAutoComplete": {
+            "is_autocomplete": false
+        }
+    },
+    "breadcrumbs": []
+}

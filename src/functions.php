@@ -147,6 +147,8 @@ function extract_canonical_url(string $html): ?string
         return null;
     }
 
+    // Use rel~="canonical" to match both strict rel="canonical" and other cases with extra terms
+    // e.g., rel="canonical nofollow"
     $canonicalNodes = $crawler->filter('link[rel~="canonical"]');
 
     if ($canonicalNodes->count() === 0) {
@@ -182,6 +184,7 @@ function list_embedded_json_selectors(string $html, bool $includeLdJson = true, 
 
     $nodes->each(function (Crawler $n) use (&$out) {
         $id = trim((string)($n->attr('id') ?? ''));
+        // Skip scripts without an ID
         if ($id !== '') {
             $out[] = 'script#' . $id;
         }
@@ -243,6 +246,31 @@ function extract_embedded_json_blocks(string $html, bool $includeLdJson = true, 
 }
 
 /**
+ * Filter JSON blocks by selector ID with optional JSON content extraction
+ *
+ * @param array       $blocks       Array of JSON blocks to filter
+ * @param string|null $selectorId   Optional selector ID to filter blocks (e.g., 'perseus-initial-props')
+ * @param bool        $pluckJsonKey Whether to extract only the JSON content from blocks (default: false)
+ *
+ * @return array Filtered blocks or JSON content array
+ */
+function filter_json_blocks_by_selector(array $blocks, ?string $selectorId = null, bool $pluckJsonKey = false): array
+{
+    // Filter by selector ID if provided
+    if ($selectorId !== null) {
+        $blocks = array_filter($blocks, fn ($block) => $block['id'] === $selectorId);
+    }
+
+    // Extract only the JSON content if requested
+    if ($pluckJsonKey) {
+        // Use empty array as fallback if no 'json' key
+        $blocks = array_map(fn ($block) => $block['json'] ?? [], $blocks);
+    }
+
+    return array_values($blocks);
+}
+
+/**
  * Save JSON blocks extracted from HTML to a file with optional filtering by selector ID
  *
  * @param string      $html        The HTML content to extract blocks from
@@ -258,13 +286,8 @@ function save_json_blocks_to_file(string $html, string $filename, ?string $selec
 {
     $blocks = extract_embedded_json_blocks($html);
 
-    // Filter by selector ID if provided
-    if ($selectorId !== null) {
-        $blocks = array_filter($blocks, fn ($block) => $block['id'] === $selectorId);
-    }
-
-    // Extract only the JSON content, not metadata
-    $jsonData = array_map(fn ($block) => $block['json'], $blocks);
+    // Filter and extract JSON content
+    $jsonData = filter_json_blocks_by_selector($blocks, $selectorId, true);
 
     // Convert to array values to reset keys
     $jsonData = array_values($jsonData);

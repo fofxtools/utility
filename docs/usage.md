@@ -165,6 +165,89 @@ Array
 */
 ```
 
+## filter_json_blocks_by_selector
+Filter JSON blocks by selector ID, with optional 'json' key selection. For use with output from `extract_embedded_json_blocks`.
+
+```php
+use FOfX\Utility;
+
+// Sample blocks from extract_embedded_json_blocks()
+$blocks = [
+    [
+        'id' => 'perseus-initial-props',
+        'type' => 'application/json',
+        'bytes' => 15,
+        'attrs' => ['id' => 'perseus-initial-props', 'class' => null],
+        'json' => ['userId' => 123],
+    ],
+    [
+        'id' => 'other-data',
+        'type' => 'application/json',
+        'bytes' => 10,
+        'attrs' => ['id' => 'other-data', 'class' => null],
+        'json' => ['setting' => 'value'],
+    ],
+];
+
+// Filter blocks and extract only JSON content
+$result = Utility\filter_json_blocks_by_selector($blocks, 'perseus-initial-props', true);
+print_r($result);
+/*
+Array
+(
+    [0] => Array
+        (
+            [userId] => 123
+        )
+
+)
+*/
+
+// Filter blocks by selector ID (returns full block metadata)
+$result = Utility\filter_json_blocks_by_selector($blocks, 'perseus-initial-props');
+/*
+Array
+(
+    [0] => Array
+        (
+            [id] => perseus-initial-props
+            [type] => application/json
+            [bytes] => 15
+            [attrs] => Array
+                (
+                    [id] => perseus-initial-props
+                    [class] =>
+                )
+
+            [json] => Array
+                (
+                    [userId] => 123
+                )
+
+        )
+
+)
+*/
+
+// Extract JSON from all blocks
+$result = Utility\filter_json_blocks_by_selector($blocks, null, true);
+/*
+Array
+(
+    [0] => Array
+        (
+            [userId] => 123
+        )
+
+    [1] => Array
+        (
+            [setting] => value
+        )
+
+)
+*/
+```
+
 ## save_json_blocks_to_file
 Save extracted JSON blocks to a file using Laravel Storage.
 

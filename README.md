@@ -9,6 +9,7 @@ A PHP library with a few practical helpers. Uses [jeremykendall/php-domain-parse
 - `extract_canonical_url()` - Extract the canonical URL from HTML content
 - `list_embedded_json_selectors()` - List CSS selectors for JSON script tags found in HTML
 - `extract_embedded_json_blocks()` - Extract JSON blocks from HTML with additional metadata
+- `filter_json_blocks_by_selector()` - Filter JSON blocks by selector ID, with optional 'json' key selection
 - `save_json_blocks_to_file()` - Save extracted JSON blocks to a file with optional filtering by selector ID
 
 ## Installation

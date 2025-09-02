@@ -8,6 +8,7 @@ use Illuminate\Support\Arr;
 
 use function FOfX\Utility\list_embedded_json_selectors;
 use function FOfX\Utility\extract_embedded_json_blocks;
+use function FOfX\Utility\filter_json_blocks_by_selector;
 
 $html = file_get_contents(__DIR__ . '/../resources/2-httpswwwfiverrcomcategoriesgraphics-designcreative-logo-design-fiverrcom-browserhtml.html');
 
@@ -19,17 +20,8 @@ $selectors = list_embedded_json_selectors($html, includeLdJson: true);
 $blocks = extract_embedded_json_blocks($html, includeLdJson: true, assoc: true);
 //print_r($blocks);
 
-// Pick a block (ID match if present)
-$index = 0;
-foreach ($blocks as $i => $b) {
-    if (($b['id'] ?? '') === 'perseus-initial-props') {
-        $index = $i;
-
-        break;
-    }
-}
-
-$data = $blocks[$index]['json'] ?? [];
+$data = filter_json_blocks_by_selector($blocks, 'perseus-initial-props', true);
+$data = $data[0] ?? [];
 
 // Inspect keys to discover structure. Use array_keys() to remove values.
 $paths = array_keys(Arr::dot($data));

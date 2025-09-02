@@ -19,6 +19,7 @@ use function FOfX\Utility\is_valid_domain;
 use function FOfX\Utility\extract_canonical_url;
 use function FOfX\Utility\list_embedded_json_selectors;
 use function FOfX\Utility\extract_embedded_json_blocks;
+use function FOfX\Utility\filter_json_blocks_by_selector;
 use function FOfX\Utility\save_json_blocks_to_file;
 
 class FunctionsTest extends TestCase
@@ -462,6 +463,178 @@ HTML;
         $this->assertCount(2, $blocks);
         $this->assertSame('perseus', $blocks[0]['id']);
         $this->assertSame('application/ld+json', $blocks[1]['type']);
+    }
+
+    public static function provideFilterJsonBlocksBySelectorTestCases(): array
+    {
+        $blocks = [
+            [
+                'id'    => 'block1',
+                'type'  => 'application/json',
+                'bytes' => 10,
+                'attrs' => ['id' => 'block1', 'class' => null],
+                'json'  => ['data' => 'value1'],
+            ],
+            [
+                'id'    => 'block2',
+                'type'  => 'application/json',
+                'bytes' => 10,
+                'attrs' => ['id' => 'block2', 'class' => null],
+                'json'  => ['data' => 'value2'],
+            ],
+            [
+                'id'    => 'block1',
+                'type'  => 'application/ld+json',
+                'bytes' => 15,
+                'attrs' => ['id' => 'block1', 'class' => null],
+                'json'  => ['@context' => 'schema.org'],
+            ],
+            [
+                'id'    => '',
+                'type'  => 'application/json',
+                'bytes' => 8,
+                'attrs' => ['id' => null, 'class' => null],
+                'json'  => ['empty' => 'id'],
+            ],
+        ];
+
+        return [
+            'no selector, no pluck' => [
+                'blocks'       => $blocks,
+                'selectorId'   => null,
+                'pluckJsonKey' => false,
+                'expected'     => $blocks,
+            ],
+            'no selector, pluck json' => [
+                'blocks'       => $blocks,
+                'selectorId'   => null,
+                'pluckJsonKey' => true,
+                'expected'     => [
+                    ['data' => 'value1'],
+                    ['data'     => 'value2'],
+                    ['@context' => 'schema.org'],
+                    ['empty'    => 'id'],
+                ],
+            ],
+            'filter by block1, no pluck' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'block1',
+                'pluckJsonKey' => false,
+                'expected'     => [
+                    [
+                        'id'    => 'block1',
+                        'type'  => 'application/json',
+                        'bytes' => 10,
+                        'attrs' => ['id' => 'block1', 'class' => null],
+                        'json'  => ['data' => 'value1'],
+                    ],
+                    [
+                        'id'    => 'block1',
+                        'type'  => 'application/ld+json',
+                        'bytes' => 15,
+                        'attrs' => ['id' => 'block1', 'class' => null],
+                        'json'  => ['@context' => 'schema.org'],
+                    ],
+                ],
+            ],
+            'filter by block1, pluck json' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'block1',
+                'pluckJsonKey' => true,
+                'expected'     => [
+                    ['data' => 'value1'],
+                    ['@context' => 'schema.org'],
+                ],
+            ],
+            'filter by block2, no pluck' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'block2',
+                'pluckJsonKey' => false,
+                'expected'     => [
+                    [
+                        'id'    => 'block2',
+                        'type'  => 'application/json',
+                        'bytes' => 10,
+                        'attrs' => ['id' => 'block2', 'class' => null],
+                        'json'  => ['data' => 'value2'],
+                    ],
+                ],
+            ],
+            'filter by block2, pluck json' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'block2',
+                'pluckJsonKey' => true,
+                'expected'     => [
+                    ['data' => 'value2'],
+                ],
+            ],
+            'filter by empty id, no pluck' => [
+                'blocks'       => $blocks,
+                'selectorId'   => '',
+                'pluckJsonKey' => false,
+                'expected'     => [
+                    [
+                        'id'    => '',
+                        'type'  => 'application/json',
+                        'bytes' => 8,
+                        'attrs' => ['id' => null, 'class' => null],
+                        'json'  => ['empty' => 'id'],
+                    ],
+                ],
+            ],
+            'filter by empty id, pluck json' => [
+                'blocks'       => $blocks,
+                'selectorId'   => '',
+                'pluckJsonKey' => true,
+                'expected'     => [
+                    ['empty' => 'id'],
+                ],
+            ],
+            'filter by non-existent id, no pluck' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'non-existent',
+                'pluckJsonKey' => false,
+                'expected'     => [],
+            ],
+            'filter by non-existent id, pluck json' => [
+                'blocks'       => $blocks,
+                'selectorId'   => 'non-existent',
+                'pluckJsonKey' => true,
+                'expected'     => [],
+            ],
+        ];
+    }
+
+    #[DataProvider('provideFilterJsonBlocksBySelectorTestCases')]
+    public function test_filter_json_blocks_by_selector(array $blocks, ?string $selectorId, bool $pluckJsonKey, array $expected): void
+    {
+        $result = filter_json_blocks_by_selector($blocks, $selectorId, $pluckJsonKey);
+        $this->assertEquals($expected, $result);
+    }
+
+    public function test_filter_json_blocks_by_selector_empty_blocks_array(): void
+    {
+        $result = filter_json_blocks_by_selector([], 'any-id', false);
+        $this->assertEquals([], $result);
+
+        $result = filter_json_blocks_by_selector([], null, true);
+        $this->assertEquals([], $result);
+    }
+
+    public function test_filter_json_blocks_by_selector_handles_null_json_when_plucking(): void
+    {
+        $blocks = [
+            [
+                'id'    => 'failed-decode',
+                'type'  => 'application/json',
+                'bytes' => 5,
+                'attrs' => ['id' => 'failed-decode', 'class' => null],
+                'json'  => null,
+            ],
+        ];
+
+        $result = filter_json_blocks_by_selector($blocks, null, true);
+        $this->assertEquals([[]], $result);
     }
 
     public function test_save_json_blocks_to_file_without_selector_single_block(): void

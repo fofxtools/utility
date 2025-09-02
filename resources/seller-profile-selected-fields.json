@@ -1,0 +1,199 @@
+{
+    "seller": {
+        "user": {
+            "id": "77647080",
+            "name": "tonigdesign",
+            "isActivationCompleted": true,
+            "joinedAt": 1560245524,
+            "profile": {
+                "displayName": "Toni G."
+            },
+            "address": {
+                "countryName": "Croatia",
+                "countryCode": "HR"
+            },
+            "languages": [],
+            "localization": {
+                "timezone": "Europe/Zagreb"
+            },
+            "profileImageUrl": "https://fiverr-res.cloudinary.com/image/upload/f_auto,q_auto,t_profile_original/v1/attachments/profile/photo/0226e25c2d1869b72e526fe1e836c303-1694878824012/0d242ef8-12a0-4eb6-906a-da37828143fa.jpg"
+        },
+        "isSelfIdentifiedAsAgency": null,
+        "regionalGroupRestrictions": [],
+        "hourlyRate": {
+            "priceInCents": 3500
+        },
+        "approvedGigsCount": 1,
+        "gigs": {
+            "nodes": []
+        },
+        "notableClients": [],
+        "isActive": true,
+        "introVideo": {
+            "url": null
+        },
+        "oneLinerTitle": "Logo and Visual Identity Designer, Shaping Unique Brand Stories",
+        "description": "Hi there! I’m Toni, a logo and visual identity designer based in Split, Croatia.\nI specialize in creating memorable logos and custom visual identities that make brands stand out. A true typography lover and coffee enthusiast, I help businesses build a strong brand presence that resonates with their audience.\nReach out anytime—whether you have questions, need advice, or just want to chat about design!",
+        "isVerified": false,
+        "isHighlyResponsive": false,
+        "profileBackgroundImage": null,
+        "certifications": [],
+        "activeEducations": [],
+        "activeStructuredSkills": [],
+        "gigCategories": [
+            {
+                "categoryId": 3,
+                "subCategoryId": 49,
+                "nestedCategoryId": null
+            }
+        ],
+        "isPro": false,
+        "proSubCategories": [],
+        "portfolios": {
+            "nodes": [],
+            "totalCount": 24
+        },
+        "workExperiences": {
+            "nodes": []
+        },
+        "onlinePresences": [],
+        "professionalPresences": [],
+        "courses": {
+            "nodes": []
+        },
+        "rating": {
+            "score": 5,
+            "count": 838
+        },
+        "isOnVacation": false,
+        "vacation": null,
+        "achievementLevel": "LEVEL_TWO",
+        "sellerLevel": "LEVEL_ONE",
+        "responseTime": {
+            "inHours": 1
+        },
+        "testimonials": [],
+        "agency": null
+    },
+    "currency": {
+        "name": "USD",
+        "rate": 1,
+        "template": "${{amount}}",
+        "forceRound": true,
+        "forceRoundFromAmount": 1000,
+        "symbol": "$"
+    },
+    "sellerHasProfessions": false,
+    "reviewsData": {
+        "buying_reviews": {
+            "reviews": [],
+            "has_next": true,
+            "total_count": 838,
+            "reviews_as_seller": true,
+            "filters_counters": {
+                "work_sample": 514,
+                "most_common_industries": [],
+                "business": 72
+            },
+            "user_id": 77647080,
+            "seller_username": "tonigdesign",
+            "star_summary": {
+                "communication_valuation": 5,
+                "recommend_valuation": 5,
+                "service_valuation": 5
+            },
+            "breakdown": [
+                {
+                    "average_valuation_value": 1,
+                    "count": 0
+                },
+                {
+                    "average_valuation_value": 2,
+                    "count": 0
+                },
+                {
+                    "average_valuation_value": 3,
+                    "count": 3
+                },
+                {
+                    "average_valuation_value": 4,
+                    "count": 28
+                },
+                {
+                    "average_valuation_value": 5,
+                    "count": 807
+                }
+            ],
+            "average_valuation": 5,
+            "reviews_snippet": [],
+            "dynamicTranslations": {
+                "beauty_and_cosmetics": "Beauty & Cosmetics",
+                "technology": "Technology"
+            }
+        },
+        "selling_reviews": {
+            "user_id": 77647080,
+            "reviews": [],
+            "total_count": null,
+            "average_valuation": null,
+            "reviews_as_seller": false,
+            "has_next": false
+        }
+    },
+    "consultationData": [],
+    "localizationData": {
+        "user_id": 77647080,
+        "currency": "USD",
+        "locale": "en-US",
+        "timezone": "Europe/Zagreb",
+        "recent_utc_offset": -120
+    },
+    "gigsData": [
+        {
+            "gig_id": 130458641,
+            "category_id": 3,
+            "sub_category_id": 49,
+            "nested_sub_category_id": 0,
+            "is_pro": false,
+            "is_featured": false,
+            "cached_slug": "design-your-business-logo-and-branding",
+            "title": "design your business logo and branding",
+            "seller_name": "tonigdesign",
+            "seller_id": 77647080,
+            "seller_country": "HR",
+            "seller_img": "https://fiverr-res.cloudinary.com/t_profile_thumb,q_auto,f_auto/attachments/profile/photo/0226e25c2d1869b72e526fe1e836c303-1694878824012/0d242ef8-12a0-4eb6-906a-da37828143fa.jpg",
+            "seller_display_name": "Toni G.",
+            "seller_online": false,
+            "status": "APPROVED",
+            "offer_consultation": false,
+            "seller_languages": [],
+            "recurring_options": [],
+            "personalized_pricing_fail": false,
+            "has_recurring_option": false,
+            "buying_review_rating_count": 836,
+            "buying_review_rating": 5,
+            "seller_url": "/tonigdesign",
+            "seller_level": "level_one_seller",
+            "seller_rating": {
+                "count": 838,
+                "score": 4.9747233
+            },
+            "gig_url": "/tonigdesign/design-your-business-logo-and-branding",
+            "is_seller_unavailable": false,
+            "price_i": 280,
+            "package_i": 1,
+            "extra_fast": false,
+            "num_of_packages": 3,
+            "gigQueryParams": []
+        }
+    ],
+    "ordersData": [],
+    "sellerRolesData": [],
+    "portfoliosData": [],
+    "isActivationCompleted": false,
+    "floatingChatData": {
+        "isFloatingChatEnabled": false,
+        "showConversationSavedTooltip": false
+    },
+    "isSellerReferralBadge": false
+}
