@@ -23,8 +23,8 @@ $app->bootstrapWith([
 Facade::setFacadeApplication($app);
 
 // Override default DB connection using utility config
-$databaseConnection = config('utility.database_connection', 'sqlite_memory');
-config(['database.default' => $databaseConnection]);
+//$databaseConnection = config('utility.database_connection', 'sqlite_memory');
+//config(['database.default' => $databaseConnection]);
 
 // Register service providers
 $app->register(EventServiceProvider::class);

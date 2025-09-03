@@ -24,6 +24,25 @@ See usage examples in:
 
 - [docs/usage.md](docs/usage.md)
 
+### Extracting and Filtering Embedded JSON from HTML
+
+You can use `filter_json_blocks_by_selector()` with `extract_embedded_json_blocks()` to extract embedded JSON from an HTML file, and filter it.
+
+```php
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use FOfX\Utility;
+use Illuminate\Support\Arr;
+
+$filename = __DIR__ . '/../resources/2-httpswwwfiverrcomcategoriesgraphics-designcreative-logo-design-fiverrcom-browserhtml.html';
+$html = file_get_contents($filename);
+$blocks = Utility\extract_embedded_json_blocks($html);
+$filtered = Utility\filter_json_blocks_by_selector($blocks, 'perseus-initial-props', true);
+// Use Arr::dot() to get a dot notation list of keys, to see the JSON structure
+$dot_keys_only = array_keys(Arr::dot($filtered[0] ?? []));
+print_r($dot_keys_only);
+```
+
 ## Testing and Development
 
 To run the PHPUnit test suite through composer:
