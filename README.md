@@ -43,6 +43,25 @@ $dot_keys_only = array_keys(Arr::dot($filtered[0] ?? []));
 print_r($dot_keys_only);
 ```
 
+### Importing Fiverr Sitemap Data (Categories and Tags)
+
+See [docs/usage-FiverrSitemapImporter.md](docs/usage-FiverrSitemapImporter.md)
+
+```php
+use FOfX\Utility\FiverrSitemapImporter;
+
+$importer = new FiverrSitemapImporter();
+$importer->setBatchSize(500); // optional (default 100)
+
+// Categories
+$stats = $importer->importCategories();
+print_r($stats);
+
+// Tags
+$stats = $importer->importTags();
+print_r($stats);
+```
+
 ## Testing and Development
 
 To run the PHPUnit test suite through composer:

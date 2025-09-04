@@ -1,6 +1,8 @@
-# Utility — Basic Usage Examples
+# Utility - Basic Usage Examples
 
 Basic examples of the functions from this library.
+
+See: [../examples/functions_test.php](../examples/functions_test.php) and [../examples/embedded_json_test.php](../examples/embedded_json_test.php)
 
 ## get_tables
 List tables for the current database connection.

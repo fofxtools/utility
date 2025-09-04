@@ -10,38 +10,44 @@ use Illuminate\Support\Facades\Schema;
 
 class FiverrSitemapImporter
 {
+    protected int $batchSize                      = 100;
     protected string $categoriesSitemapFilename   = __DIR__ . '/../resources/sitemap_categories.xml';
     protected string $categoriesTableName         = 'fiverr_sitemap_categories';
     protected string $categoriesMigrationFilename = __DIR__ . '/../database/migrations/2025_09_02_175026_create_fiverr_sitemap_categories_table.php';
-    protected int $batchSize                      = 100;
+    protected string $tagsSitemapFilename         = __DIR__ . '/../resources/sitemap_tags.xml';
+    protected string $tagsTableName               = 'fiverr_sitemap_tags';
+    protected string $tagsMigrationFilename       = __DIR__ . '/../database/migrations/2025_09_03_211440_create_fiverr_sitemap_tags_table.php';
 
     /**
-     * Optional overrides for defaults set on the properties.
-     * Pass null to keep defaults.
+     * Constructor
      *
-     * @param string|null $categoriesSitemapFilename   Absolute path to the categories sitemap XML
-     * @param string|null $categoriesTableName         Target DB table name for import
-     * @param string|null $categoriesMigrationFilename Absolute path to the categories migration file
-     * @param int|null    $batchSize                   Insert batch size (min 1)
+     * No-arg constructor. Properties have defaults and can be customized via public setters.
      */
-    public function __construct(
-        ?string $categoriesSitemapFilename = null,
-        ?string $categoriesTableName = null,
-        ?string $categoriesMigrationFilename = null,
-        ?int $batchSize = null
-    ) {
-        if ($categoriesSitemapFilename !== null) {
-            $this->categoriesSitemapFilename = $categoriesSitemapFilename;
-        }
-        if ($categoriesTableName !== null) {
-            $this->categoriesTableName = $categoriesTableName;
-        }
-        if ($categoriesMigrationFilename !== null) {
-            $this->categoriesMigrationFilename = $categoriesMigrationFilename;
-        }
-        if ($batchSize !== null) {
-            $this->batchSize = max(1, $batchSize);
-        }
+    public function __construct()
+    {
+        // Intentionally empty; defaults are set via properties and can be customized via setters.
+    }
+
+    /**
+     * Get the current batch size.
+     *
+     * @return int
+     */
+    public function getBatchSize(): int
+    {
+        return $this->batchSize;
+    }
+
+    /**
+     * Set the batch size (min 1).
+     *
+     * @param int $batchSize
+     *
+     * @return void
+     */
+    public function setBatchSize(int $batchSize): void
+    {
+        $this->batchSize = max(1, $batchSize);
     }
 
     /**
@@ -111,25 +117,69 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Get the current batch size.
+     * Get the tags sitemap filename.
      *
-     * @return int
+     * @return string
      */
-    public function getBatchSize(): int
+    public function getTagsSitemapFilename(): string
     {
-        return $this->batchSize;
+        return $this->tagsSitemapFilename;
     }
 
     /**
-     * Set the batch size (min 1).
+     * Set the tags sitemap filename.
      *
-     * @param int $batchSize
+     * @param string $filename
      *
      * @return void
      */
-    public function setBatchSize(int $batchSize): void
+    public function setTagsSitemapFilename(string $filename): void
     {
-        $this->batchSize = max(1, $batchSize);
+        $this->tagsSitemapFilename = $filename;
+    }
+
+    /**
+     * Get the tags table name.
+     *
+     * @return string
+     */
+    public function getTagsTableName(): string
+    {
+        return $this->tagsTableName;
+    }
+
+    /**
+     * Set the tags table name.
+     *
+     * @param string $tableName
+     *
+     * @return void
+     */
+    public function setTagsTableName(string $tableName): void
+    {
+        $this->tagsTableName = $tableName;
+    }
+
+    /**
+     * Get the tags migration filename.
+     *
+     * @return string
+     */
+    public function getTagsMigrationFilename(): string
+    {
+        return $this->tagsMigrationFilename;
+    }
+
+    /**
+     * Set the tags migration filename.
+     *
+     * @param string $filename
+     *
+     * @return void
+     */
+    public function setTagsMigrationFilename(string $filename): void
+    {
+        $this->tagsMigrationFilename = $filename;
     }
 
     /**
@@ -207,17 +257,10 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Insert a batch using insertOrIgnore.
-     *
-     * @param array<int,array<string,mixed>> $batch Array of row data
-     *
-     * @return array{inserted:int,skipped:int}
-     */
-    /**
      * Insert a batch into a specific table using insertOrIgnore.
      *
-     * @param string                         $tableName
-     * @param array<int,array<string,mixed>> $batch
+     * @param string                         $tableName Table name
+     * @param array<int,array<string,mixed>> $batch     Array of row data
      *
      * @return array{inserted:int,skipped:int}
      */
@@ -258,6 +301,30 @@ class FiverrSitemapImporter
     }
 
     /**
+     * Ensure the tags table exists; auto-create using the configured migration if missing.
+     *
+     * @throws \RuntimeException If migration file missing
+     *
+     * @return void
+     */
+    public function ensureTagsTableExists(): void
+    {
+        if (Schema::hasTable($this->tagsTableName)) {
+            Log::debug('Table already exists', ['table' => $this->tagsTableName]);
+
+            return;
+        }
+
+        $migrationPath = $this->tagsMigrationFilename;
+        if (!file_exists($migrationPath)) {
+            throw new \RuntimeException("Migration file not found: {$migrationPath}");
+        }
+        $migration = require $migrationPath;
+        $migration->up();
+        Log::debug('Created missing table', ['table' => $this->tagsTableName]);
+    }
+
+    /**
      * Import the categories sitemap into the categories table in batches.
      *
      * @throws \RuntimeException If required files are missing or XML has no <url> entries
@@ -292,6 +359,7 @@ class FiverrSitemapImporter
         $skipped       = 0;
         $batchNum      = 0;
         $batch         = [];
+        $batchTs       = null; // Per-batch timestamp for created_at/updated_at
 
         foreach ($urlNodes as $urlNode) {
             $locList = $xpath->query('sm:loc', $urlNode);
@@ -323,6 +391,9 @@ class FiverrSitemapImporter
             [$categoryId, $subCategoryId, $nestedSubCategoryId] = $this->parseCategoryIdsFromAlternateHref($alternateHref);
             $slug                                               = $this->deriveSlug($loc);
 
+            // Set per-batch timestamps on first row of batch
+            $batchTs = $batchTs ?? now();
+
             $batch[] = [
                 'url'                    => $loc,
                 'slug'                   => $slug,
@@ -331,8 +402,8 @@ class FiverrSitemapImporter
                 'category_id'            => $categoryId,
                 'sub_category_id'        => $subCategoryId,
                 'nested_sub_category_id' => $nestedSubCategoryId,
-                'created_at'             => now(),
-                'updated_at'             => now(),
+                'created_at'             => $batchTs,
+                'updated_at'             => $batchTs,
                 'processed_at'           => null,
                 'processed_status'       => null,
             ];
@@ -352,7 +423,8 @@ class FiverrSitemapImporter
                     'inserted_cum' => $inserted,
                     'skipped_cum'  => $skipped,
                 ]);
-                $batch = [];
+                $batch   = [];
+                $batchTs = null; // Reset so next batch gets a fresh timestamp
             }
         }
 
@@ -380,6 +452,113 @@ class FiverrSitemapImporter
             'skipped'        => $skipped,
             'batches'        => $batchNum,
             'duration_sec'   => $duration,
+        ];
+
+        Log::debug('Sitemap import completed', $stats);
+
+        return $stats;
+    }
+
+    /**
+     * Import the tags sitemap into the tags table in batches.
+     *
+     * @return array{processed:int,inserted:int,skipped:int,batches:int,duration_sec:float}
+     */
+    public function importTags(): array
+    {
+        $start = microtime(true);
+        $this->ensureTagsTableExists();
+
+        $sitemapPath = $this->tagsSitemapFilename;
+        if (!file_exists($sitemapPath)) {
+            throw new \RuntimeException("Sitemap XML not found: {$sitemapPath}");
+        }
+
+        Log::debug('Starting sitemap import', [
+            'table'     => $this->tagsTableName,
+            'sitemap'   => $sitemapPath,
+            'batchSize' => $this->batchSize,
+        ]);
+
+        $xpath    = $this->loadDom($sitemapPath);
+        $urlNodes = $xpath->query('//sm:url');
+        if (!$urlNodes) {
+            throw new \RuntimeException('No <url> entries found in sitemap.');
+        }
+
+        $total    = 0;
+        $inserted = 0;
+        $skipped  = 0;
+        $batches  = 0;
+        $batch    = [];
+        $batchTs  = null;
+
+        foreach ($urlNodes as $urlNode) {
+            $locList = $xpath->query('sm:loc', $urlNode);
+            $locNode = ($locList instanceof \DOMNodeList) ? $locList->item(0) : null;
+            if (!$locNode) {
+                continue;
+            }
+            $loc = trim($locNode->textContent);
+            if ($loc === '') {
+                continue;
+            }
+
+            $slug = $this->deriveSlug($loc);
+
+            $batchTs = $batchTs ?? now();
+            $batch[] = [
+                'url'              => $loc,
+                'slug'             => $slug,
+                'created_at'       => $batchTs,
+                'updated_at'       => $batchTs,
+                'processed_at'     => null,
+                'processed_status' => null,
+            ];
+
+            $total++;
+
+            if (count($batch) >= $this->batchSize) {
+                $batches++;
+                $res = $this->insertBatchToTable($this->tagsTableName, $batch);
+                $inserted += $res['inserted'];
+                $skipped += $res['skipped'];
+                Log::debug('Batch inserted', [
+                    'batch'        => $batches,
+                    'count'        => count($batch),
+                    'inserted'     => $res['inserted'],
+                    'skipped'      => $res['skipped'],
+                    'inserted_cum' => $inserted,
+                    'skipped_cum'  => $skipped,
+                ]);
+                $batch   = [];
+                $batchTs = null;
+            }
+        }
+
+        if (!empty($batch)) {
+            $batches++;
+            $res = $this->insertBatchToTable($this->tagsTableName, $batch);
+            $inserted += $res['inserted'];
+            $skipped += $res['skipped'];
+            Log::debug('Final batch inserted', [
+                'batch'        => $batches,
+                'count'        => count($batch),
+                'inserted'     => $res['inserted'],
+                'skipped'      => $res['skipped'],
+                'inserted_cum' => $inserted,
+                'skipped_cum'  => $skipped,
+            ]);
+        }
+
+        $duration = microtime(true) - $start;
+
+        $stats = [
+            'processed'    => $total,
+            'inserted'     => $inserted,
+            'skipped'      => $skipped,
+            'batches'      => $batches,
+            'duration_sec' => $duration,
         ];
 
         Log::debug('Sitemap import completed', $stats);
