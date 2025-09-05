@@ -28,6 +28,15 @@
         "cachedSlug": "creative-logo-design",
         "name": "Logo Design"
     },
+    "v2": {
+        "report": {
+            "search_total_results": 48,
+            "sort_pro_first": false,
+            "category_id": 3,
+            "sub_category_id": 49,
+            "nested_sub_category_id": null
+        }
+    },
     "appData": {
         "pagination": {
             "page": 1,

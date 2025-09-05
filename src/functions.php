@@ -316,3 +316,147 @@ function save_json_blocks_to_file(string $html, string $filename, ?string $selec
 
     return $filename;
 }
+
+/**
+ * Infer a reasonable Laravel migration column type for a given value.
+ *
+ * Heuristics:
+ * - null => 'string'
+ * - non-scalar (arrays/objects) => 'text'
+ * - string length > 255 => 'text'
+ * - float => 'float'
+ * - otherwise => PHP gettype($value)
+ *
+ * @param mixed $value The value to infer the type from
+ *
+ * @return string The inferred type keyword (e.g., string, text, float, integer, boolean)
+ */
+function infer_laravel_type(mixed $value): string
+{
+    return match (true) {
+        is_null($value)                           => 'string',
+        !is_scalar($value)                        => 'text',
+        is_string($value) && strlen($value) > 255 => 'text',
+        is_float($value)                          => 'float',
+        default                                   => gettype($value),
+    };
+}
+
+/**
+ * Inspect a nested JSON-like array and produce a flat map of "path => type".
+ *
+ * - Traverses associative arrays (objects) and recurses into them
+ * - Stops at list arrays; records type as 'array' or inferred type if $infer is true
+ * - Scalars use PHP gettype() or infer_laravel_type() when $infer is true
+ *
+ * @param array                $data      Decoded JSON as associative array
+ * @param string               $delimiter Path delimiter used to join keys (default ".")
+ * @param bool                 $infer     If true, use infer_laravel_type() heuristics rather than gettype()
+ * @param string               $prefix    Path prefix to start from (used internally)
+ * @param array<string,string> $out       Accumulator map of path => type (by reference, used internally)
+ *
+ * @return array<string,string> Final path => type map
+ */
+function inspect_json_types(array $data, string $delimiter = '.', bool $infer = false, string $prefix = '', array &$out = []): array
+{
+    foreach ($data as $key => $value) {
+        if ($prefix === '') {
+            $path = (string) $key;
+        } else {
+            $path = $prefix . $delimiter . (string) $key;
+        }
+
+        if (is_array($value)) {
+            if (array_is_list($value)) {
+                // Stop at arrays
+                if ($infer) {
+                    $out[$path] = infer_laravel_type($value);
+                } else {
+                    $out[$path] = 'array';
+                }
+            } else {
+                // Recurse into objects
+                inspect_json_types($value, $delimiter, $infer, $path, $out);
+            }
+        } else {
+            if ($infer) {
+                $out[$path] = infer_laravel_type($value);
+            } else {
+                $out[$path] = gettype($value);
+            }
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Convert a map of path => type into plain Laravel migration column lines.
+ *
+ * Example input: ['user.name' => 'string', 'user.profile' => 'text']
+ * Output lines:
+ *   string('user.name')
+ *   text('user.profile')
+ *
+ * @param array<string,string> $types Map of path => Laravel type
+ *
+ * @return string Multiline string of column definitions, one per line
+ */
+function types_to_columns(array $types): string
+{
+    $output = '';
+    foreach ($types as $key => $type) {
+        $output .= "{$type}('{$key}')" . PHP_EOL;
+    }
+
+    return $output;
+}
+
+/**
+ * Get a nested value from a decoded JSON array using a path and delimiter.
+ *
+ * Path is split by the delimiter (default ".") and traversed step by step.
+ * Returns null if any segment is missing.
+ *
+ * @param array<string,mixed> $data      Decoded JSON as associative array
+ * @param string              $path      Delimited key path (e.g., "user.address.city")
+ * @param string              $delimiter Delimiter separating path segments (default ".")
+ *
+ * @return mixed|null The value if found, otherwise null
+ */
+function get_json_value_by_path(array $data, string $path, string $delimiter = '.'): mixed
+{
+    $keys    = explode($delimiter, $path);
+    $current = $data;
+
+    foreach ($keys as $key) {
+        if (!is_array($current) || !array_key_exists($key, $current)) {
+            return null; // Path not found
+        }
+        $current = $current[$key];
+    }
+
+    return $current;
+}
+
+/**
+ * Extract multiple values by paths from a decoded JSON array.
+ *
+ * For each path in $paths, returns the value resolved by get_json_value_by_path(),
+ * keyed by the original path string.
+ *
+ * @param array<string,mixed> $data      Decoded JSON as associative array
+ * @param string[]            $paths     List of delimited key paths
+ * @param string              $delimiter Delimiter separating path segments (default ".")
+ *
+ * @return array<string,mixed> Map of path => resolved value (or null if not found)
+ */
+function extract_values_by_paths(array $data, array $paths, string $delimiter = '.'): array
+{
+    $results = [];
+    foreach ($paths as $path) {
+        $results[$path] = get_json_value_by_path($data, $path, $delimiter);
+    }
+
+    return $results;
+}

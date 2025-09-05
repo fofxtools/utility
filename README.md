@@ -62,6 +62,12 @@ $stats = $importer->importTags();
 print_r($stats);
 ```
 
+### JSON to Columns
+
+Helpers for working with JSON data and converting it to database columns.
+
+See [docs/usage-json-to-columns.md](docs/usage-json-to-columns.md)
+
 ## Testing and Development
 
 To run the PHPUnit test suite through composer:

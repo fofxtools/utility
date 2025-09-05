@@ -21,6 +21,11 @@ use function FOfX\Utility\list_embedded_json_selectors;
 use function FOfX\Utility\extract_embedded_json_blocks;
 use function FOfX\Utility\filter_json_blocks_by_selector;
 use function FOfX\Utility\save_json_blocks_to_file;
+use function FOfX\Utility\infer_laravel_type;
+use function FOfX\Utility\inspect_json_types;
+use function FOfX\Utility\types_to_columns;
+use function FOfX\Utility\get_json_value_by_path;
+use function FOfX\Utility\extract_values_by_paths;
 
 class FunctionsTest extends TestCase
 {
@@ -176,7 +181,7 @@ class FunctionsTest extends TestCase
     }
 
     #[DataProvider('provideExtractRegistrableDomainTestCases')]
-    public function testExtractRegistrableDomain(string $url, string $expected, bool $stripWww = true): void
+    public function test_extract_registrable_domain(string $url, string $expected, bool $stripWww = true): void
     {
         $actual = extract_registrable_domain($url, $stripWww);
         $this->assertEquals($expected, $actual);
@@ -809,5 +814,237 @@ HTML;
         $this->assertStringContainsString('café', $savedContent);
         $this->assertStringNotContainsString('\/', $savedContent);
         $this->assertStringNotContainsString('\\u0026', $savedContent);
+    }
+
+    public static function provideInferLaravelTypeCases(): array
+    {
+        return [
+            'null => string'         => [null, 'string'],
+            'short string => string' => ['hello', 'string'],
+            'long string => text'    => [str_repeat('a', 300), 'text'],
+            'float => float'         => [3.14, 'float'],
+            'integer => integer'     => [42, 'integer'],
+            'boolean => boolean'     => [true, 'boolean'],
+            'array/object => text'   => [['a' => 1], 'text'],
+        ];
+    }
+
+    #[DataProvider('provideInferLaravelTypeCases')]
+    public function test_infer_laravel_type(mixed $value, string $expected): void
+    {
+        $this->assertSame($expected, infer_laravel_type($value));
+    }
+
+    public function test_inspect_json_types_defaults(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+                'tags' => ['a', 'b'],
+            ],
+            'active' => true,
+        ];
+
+        $types = inspect_json_types($data);
+
+        $this->assertSame([
+            'user.name' => 'string',
+            'user.age'  => 'integer',
+            'user.tags' => 'array',
+            'active'    => 'boolean',
+        ], $types);
+    }
+
+    public function test_inspect_json_types_with_custom_delimiter(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+                'tags' => ['a', 'b'],
+            ],
+            'active' => true,
+        ];
+
+        $types = inspect_json_types($data, delimiter: '__');
+
+        $this->assertSame([
+            'user__name' => 'string',
+            'user__age'  => 'integer',
+            'user__tags' => 'array',
+            'active'     => 'boolean',
+        ], $types);
+    }
+
+    public function test_inspect_json_types_with_infer(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+                'tags' => ['a', 'b'],
+            ],
+            'active' => true,
+        ];
+
+        $types = inspect_json_types($data, infer: true);
+
+        $this->assertSame([
+            'user.name' => 'string',
+            'user.age'  => 'integer',
+            'user.tags' => 'text', // List array treated as text
+            'active'    => 'boolean',
+        ], $types);
+    }
+
+    public function test_inspect_json_types_with_custom_delimiter_and_infer(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+                'tags' => ['a', 'b'],
+            ],
+            'active' => true,
+        ];
+
+        $types = inspect_json_types($data, delimiter: '__', infer: true);
+
+        $this->assertSame([
+            'user__name' => 'string',
+            'user__age'  => 'integer',
+            'user__tags' => 'text', // List array treated as text
+            'active'     => 'boolean',
+        ], $types);
+    }
+
+    public function test_inspect_json_types_empty_arrays(): void
+    {
+        $data = [
+            'empty_obj' => [],
+            'nested'    => ['also_empty' => []],
+        ];
+        $types = inspect_json_types($data);
+        $this->assertSame([
+            'empty_obj'         => 'array',
+            'nested.also_empty' => 'array',
+        ], $types);
+    }
+
+    public function test_inspect_json_types_mixed_array_types_handling(): void
+    {
+        $data = [
+            'mixed' => ['a', 'b', 'key' => 'value'],
+        ];
+        $types = inspect_json_types($data);
+        $this->assertSame([
+            'mixed.0'   => 'string',
+            'mixed.1'   => 'string',
+            'mixed.key' => 'string',
+        ], $types);
+    }
+
+    public function test_types_to_columns_renders_lines(): void
+    {
+        $types = [
+            'user__name' => 'string',
+            'user__bio'  => 'text',
+            'user__age'  => 'integer',
+        ];
+
+        $expected = "string('user__name')" . PHP_EOL
+                  . "text('user__bio')" . PHP_EOL
+                  . "integer('user__age')" . PHP_EOL;
+
+        $this->assertSame($expected, types_to_columns($types));
+    }
+
+    public function test_get_json_value_by_path_default_delimiter(): void
+    {
+        $data = [
+            'user' => [
+                'address' => [
+                    'city' => 'Paris',
+                ],
+            ],
+        ];
+
+        $this->assertSame('Paris', get_json_value_by_path($data, 'user.address.city'));
+        $this->assertNull(get_json_value_by_path($data, 'user.address.zip'));
+    }
+
+    public function test_get_json_value_by_path_custom_delimiter(): void
+    {
+        $data = [
+            'user' => [
+                'address' => [
+                    'city' => 'Paris',
+                ],
+            ],
+        ];
+
+        $this->assertSame('Paris', get_json_value_by_path($data, 'user__address__city', delimiter: '__'));
+    }
+
+    public function test_get_json_value_by_path_non_array_intermediate_returns_null(): void
+    {
+        $data = ['user' => 'not-an-array'];
+        $this->assertNull(get_json_value_by_path($data, 'user.name'));
+    }
+
+    public function test_get_json_value_by_path_empty_path_returns_null(): void
+    {
+        $data = ['simple' => 1];
+        $this->assertNull(get_json_value_by_path($data, ''));
+    }
+
+    public function test_get_json_value_by_path_single_key_path(): void
+    {
+        $data = ['simple' => 123];
+        $this->assertSame(123, get_json_value_by_path($data, 'simple'));
+    }
+
+    public function test_get_json_value_by_path_deep_nesting_returns_value(): void
+    {
+        $data = ['a' => ['b' => ['c' => ['d' => 'value']]]];
+        $this->assertSame('value', get_json_value_by_path($data, 'a.b.c.d'));
+    }
+
+    public function test_extract_values_by_paths_default_delimiter(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+            ],
+        ];
+        $paths = ['user.name', 'user.age', 'user.missing'];
+
+        $result = extract_values_by_paths($data, $paths);
+
+        $this->assertSame([
+            'user.name'    => 'Alice',
+            'user.age'     => 30,
+            'user.missing' => null,
+        ], $result);
+    }
+
+    public function test_extract_values_by_paths_custom_delimiter(): void
+    {
+        $data = [
+            'user' => [
+                'name' => 'Alice',
+                'age'  => 30,
+            ],
+        ];
+        $paths = ['user__name', 'user__age'];
+
+        $result = extract_values_by_paths($data, $paths, delimiter: '__');
+
+        $this->assertSame([
+            'user__name' => 'Alice',
+            'user__age'  => 30,
+        ], $result);
     }
 }
