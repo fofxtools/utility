@@ -92,16 +92,10 @@
             "reviews_as_seller": true,
             "filters_counters": {
                 "work_sample": 514,
-                "most_common_industries": [],
                 "business": 72
             },
             "user_id": 77647080,
             "seller_username": "tonigdesign",
-            "star_summary": {
-                "communication_valuation": 5,
-                "recommend_valuation": 5,
-                "service_valuation": 5
-            },
             "breakdown": [
                 {
                     "average_valuation_value": 1,
@@ -125,11 +119,7 @@
                 }
             ],
             "average_valuation": 5,
-            "reviews_snippet": [],
-            "dynamicTranslations": {
-                "beauty_and_cosmetics": "Beauty & Cosmetics",
-                "technology": "Technology"
-            }
+            "reviews_snippet": []
         },
         "selling_reviews": {
             "user_id": 77647080,

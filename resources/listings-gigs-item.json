@@ -1,0 +1,53 @@
+{
+    "gigId": 69345221,
+    "pos": 0,
+    "type": "promoted_gigs",
+    "auction": {
+        "id": "18175d52-25b2-4d68-821d-10d37f8f320d"
+    },
+    "is_fiverr_choice": false,
+    "packages": {
+        "recommended": {
+            "id": 1,
+            "extra_fast": false,
+            "price": 75,
+            "duration": 4,
+            "price_tier": 0,
+            "type": "cheapest"
+        }
+    },
+    "category_id": 3,
+    "sub_category_id": 49,
+    "nested_sub_category_id": 0,
+    "is_pro": false,
+    "is_featured": false,
+    "cached_slug": "create-brand-logo-identity-and-website",
+    "title": "design a professional and beautiful logo",
+    "seller_name": "camilozuluagaf",
+    "seller_id": 36461113,
+    "seller_country": "CO",
+    "seller_img": "https://fiverr-res.cloudinary.com/t_profile_thumb,q_auto,f_auto/attachments/profile/photo/da790eb69c1fe8d7427cc32f3878bbf0-1734975414328/dedfb9eb-2cfa-4432-8462-ea4cdce3b6bf.jpg",
+    "seller_display_name": "Camilo",
+    "seller_online": false,
+    "status": "APPROVED",
+    "offer_consultation": true,
+    "seller_languages": [],
+    "recurring_options": [],
+    "personalized_pricing_fail": false,
+    "has_recurring_option": true,
+    "buying_review_rating_count": 5538,
+    "buying_review_rating": 4.8,
+    "seller_url": "/camilozuluagaf",
+    "seller_level": "top_rated_seller",
+    "seller_rating": {
+        "count": 5763,
+        "score": 4.8905787
+    },
+    "gig_url": "/camilozuluagaf/create-brand-logo-identity-and-website",
+    "is_seller_unavailable": false,
+    "price_i": 75,
+    "package_i": 1,
+    "extra_fast": false,
+    "num_of_packages": 3,
+    "u_id": "69345221_0"
+}

@@ -68,6 +68,38 @@ Helpers for working with JSON data and converting it to database columns.
 
 See [docs/usage-json-to-columns.md](docs/usage-json-to-columns.md)
 
+```php
+use FOfX\Utility;
+
+$filename = __DIR__ . '/../resources/2-httpswwwfiverrcomcategoriesgraphics-designcreative-logo-design-fiverrcom-browserhtml.html';
+$html     = file_get_contents($filename);
+$blocks   = Utility\extract_embedded_json_blocks($html);
+$filtered = Utility\filter_json_blocks_by_selector($blocks, 'perseus-initial-props', true);
+// Infer Laravel database columns types from the filtered JSON
+// At the first item, first listing, first gig
+$types   = Utility\inspect_json_types($filtered[0]['listings'][0]['gigs'][0], delimiter: '__', infer: true);
+$columns = Utility\types_to_columns($types);
+print_r($columns);
+```
+
+This gives you hints about the column types. Using `__` delimiter, which is friendly for column names. Partial output:
+
+```
+integer('gigId')
+integer('pos')
+string('type')
+string('auction__id')
+boolean('is_fiverr_choice')
+integer('packages__recommended__id')
+boolean('packages__recommended__extra_fast')
+integer('packages__recommended__price')
+integer('packages__recommended__duration')
+integer('packages__recommended__price_tier')
+string('packages__recommended__type')
+string('sellerId')
+...
+```
+
 ## Testing and Development
 
 To run the PHPUnit test suite through composer:

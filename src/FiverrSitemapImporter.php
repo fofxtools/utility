@@ -13,7 +13,7 @@ class FiverrSitemapImporter
     protected int $batchSize                      = 100;
     protected string $categoriesSitemapFilename   = __DIR__ . '/../resources/sitemap_categories.xml';
     protected string $categoriesTableName         = 'fiverr_sitemap_categories';
-    protected string $categoriesMigrationFilename = __DIR__ . '/../database/migrations/2025_09_02_175026_create_fiverr_sitemap_categories_table.php';
+    protected string $categoriesMigrationFilename = __DIR__ . '/../database/migrations/2025_09_02_181130_create_fiverr_sitemap_categories_table.php';
     protected string $tagsSitemapFilename         = __DIR__ . '/../resources/sitemap_tags.xml';
     protected string $tagsTableName               = 'fiverr_sitemap_tags';
     protected string $tagsMigrationFilename       = __DIR__ . '/../database/migrations/2025_09_03_211440_create_fiverr_sitemap_tags_table.php';
