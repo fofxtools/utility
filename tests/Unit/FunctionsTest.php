@@ -819,13 +819,15 @@ HTML;
     public static function provideInferLaravelTypeCases(): array
     {
         return [
-            'null => string'         => [null, 'string'],
-            'short string => string' => ['hello', 'string'],
-            'long string => text'    => [str_repeat('a', 300), 'text'],
-            'float => float'         => [3.14, 'float'],
-            'integer => integer'     => [42, 'integer'],
-            'boolean => boolean'     => [true, 'boolean'],
-            'array/object => text'   => [['a' => 1], 'text'],
+            'null => string'                 => [null, 'string'],
+            'short string => string'         => ['hello', 'string'],
+            'long string => text'            => [str_repeat('a', 300), 'text'],
+            'float => float'                 => [3.14, 'float'],
+            'integer => integer'             => [42, 'integer'],
+            'big int => bigInteger'          => [9223372036854, 'bigInteger'],
+            'negative big int => bigInteger' => [-5000000000, 'bigInteger'],
+            'boolean => boolean'             => [true, 'boolean'],
+            'array/object => text'           => [['a' => 1], 'text'],
         ];
     }
 

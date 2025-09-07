@@ -55,7 +55,7 @@ return new class () extends Migration {
             $table->text('sellerCard__proficientLanguages')->nullable();
             $table->integer('sellerCard__memberSince')->nullable();
             $table->integer('sellerCard__responseTime')->nullable();
-            $table->integer('sellerCard__recentDelivery')->nullable();
+            $table->bigInteger('sellerCard__recentDelivery')->nullable();
             $table->text('sellerCard__description')->nullable();
             $table->boolean('sellerCard__isPro')->nullable();
             $table->text('sellerCard__proSubCategories')->nullable();
@@ -64,7 +64,7 @@ return new class () extends Migration {
 
             // Description, gallery, FAQ, packages, tags
             $table->text('description__content')->nullable();
-            $table->text('gallery__slides')->nullable();
+            $table->mediumText('gallery__slides')->nullable();
             $table->text('faq__questionsAndAnswers')->nullable();
             $table->text('packages__packageList')->nullable();
             $table->text('packages__recurringOptions')->nullable();

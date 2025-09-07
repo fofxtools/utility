@@ -25,7 +25,7 @@ return new class () extends Migration {
             $table->string('currency__symbol')->nullable();
 
             // Listing attributes
-            $table->string('listingAttributes__id')->nullable();
+            $table->string('listingAttributes__id');
             $table->string('listingAttributes__sortBy')->nullable();
             $table->integer('listingAttributes__offset')->nullable();
             $table->string('listingAttributes__platform')->nullable();
@@ -57,7 +57,7 @@ return new class () extends Migration {
             $table->integer('appData__pagination__total')->nullable();
 
             // Main data
-            $table->text('listings')->nullable();
+            $table->mediumText('listings')->nullable();
 
             // Facets
             $table->text('facets__file_format')->nullable();
@@ -97,6 +97,9 @@ return new class () extends Migration {
             // Custom processing fields
             $table->timestamp('processed_at')->nullable();
             $table->text('processed_status')->nullable();
+
+            // Unique index on listingAttributes__id
+            $table->unique('listingAttributes__id');
 
             // Indexes
             $table->index('v2__report__search_total_results');

@@ -56,3 +56,14 @@ This document tracks various issues encountered during development and their sol
   - `reviewsData__buying_reviews__dynamicTranslations` (child field: `beauty_and_cosmetics` at 70 chars)
 - **Solution**: Removed these fields from both `resources/seller-profile-selected-fields.json` and the migration file to avoid identifier length violations.
 - **Index Names**: Added custom index names for long `reviewsData__buying_reviews` and `reviewsData__selling_reviews` columns to prevent auto-generated index names from exceeding the 64-character limit (e.g., `idx_buying_reviews__total_count`).
+
+#### Fiverr Listings Table Unique Index Selection (9-07-2025)
+- **Issue**: Determining the appropriate unique constraint for the `fiverr_listings` table to prevent duplicate imports while handling different search contexts.
+- **Analysis**: Three potential approaches were considered:
+  1. `listingAttributes.id` - Appears to be session-dependent identifier that changes between requests to the same URL
+  2. `categoryIds.categoryId + categoryIds.subCategoryId + categoryIds.nestedSubCategoryId + activeFilters` - Works for category pages but not manual search queries
+  3. `listingQuery + activeFilters` - Works for search queries but not category pages
+- **Challenge**: Fiverr has two distinct search contexts (category browsing vs. search queries) that require different uniqueness strategies.
+- **MVP Compromise**: Used `listingAttributes.id` as the unique constraint despite its seeming session-dependent nature. This prevents importing the same already-downloaded page twice during a single scraping session.
+- **Assumption**: For MVP purposes, each URL will only be downloaded once, making the session-dependency acceptable.
+- **Alternative Approaches Considered**: Context-aware hash (`MD5(CASE WHEN listingQuery != '' THEN CONCAT('SEARCH:', listingQuery, '|', activeFilters) ELSE CONCAT('CATEGORY:', categoryIds__categoryId, ':', categoryIds__subCategoryId, ':', categoryIds__nestedSubCategoryId, '|', activeFilters) END)`) and content-based hash (`MD5(CONCAT(listingQuery, categoryIds__categoryId, categoryIds__subCategoryId, categoryIds__nestedSubCategoryId, activeFilters))`) approaches were explored but deemed over-engineered for MVP requirements.

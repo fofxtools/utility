@@ -338,7 +338,9 @@ function infer_laravel_type(mixed $value): string
         !is_scalar($value)                        => 'text',
         is_string($value) && strlen($value) > 255 => 'text',
         is_float($value)                          => 'float',
-        default                                   => gettype($value),
+        // Use bigInteger for integers outside 32-bit signed range
+        is_int($value) && ($value < -2147483648 || $value > 2147483647) => 'bigInteger',
+        default                                                         => gettype($value),
     };
 }
 
