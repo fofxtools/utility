@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Pdp\Rules;
 use Pdp\Domain;
 use FOfX\Helper;
@@ -461,4 +462,31 @@ function extract_values_by_paths(array $data, array $paths, string $delimiter = 
     }
 
     return $results;
+}
+
+/**
+ * Ensure a database table exists; auto-create using a migration file if missing.
+ *
+ * @param string $tableName         The name of the table to check/create
+ * @param string $migrationFilename Full path to the migration file
+ *
+ * @throws \RuntimeException If migration file is missing
+ *
+ * @return void
+ */
+function ensure_table_exists(string $tableName, string $migrationFilename): void
+{
+    if (Schema::hasTable($tableName)) {
+        Log::debug('Table already exists', ['table' => $tableName]);
+
+        return;
+    }
+
+    if (!file_exists($migrationFilename)) {
+        throw new \RuntimeException("Migration file not found: {$migrationFilename}");
+    }
+
+    $migration = require $migrationFilename;
+    $migration->up();
+    Log::debug('Created missing table', ['table' => $tableName, 'migration_filename' => $migrationFilename]);
 }

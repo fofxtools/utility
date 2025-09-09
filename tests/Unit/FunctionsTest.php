@@ -26,6 +26,7 @@ use function FOfX\Utility\inspect_json_types;
 use function FOfX\Utility\types_to_columns;
 use function FOfX\Utility\get_json_value_by_path;
 use function FOfX\Utility\extract_values_by_paths;
+use function FOfX\Utility\ensure_table_exists;
 
 class FunctionsTest extends TestCase
 {
@@ -1048,5 +1049,89 @@ HTML;
             'user__name' => 'Alice',
             'user__age'  => 30,
         ], $result);
+    }
+
+    private function createTempMigrationFile(string $tableName): string
+    {
+        $php = <<<PHP
+<?php
+return new class {
+    public function up(): void
+    {
+        \Illuminate\Support\Facades\Schema::create('{$tableName}', function (\$table) {
+            \$table->id();
+            \$table->string('name')->nullable();
+            \$table->timestamps();
+        });
+    }
+};
+PHP;
+
+        $path = sys_get_temp_dir() . '/test_migration_' . uniqid() . '.php';
+        file_put_contents($path, $php);
+
+        return $path;
+    }
+
+    public function test_ensure_table_exists_creates_table_when_missing(): void
+    {
+        $tableName     = 'test_ensure_table_missing';
+        $migrationFile = $this->createTempMigrationFile($tableName);
+
+        // Ensure table doesn't exist
+        Schema::dropIfExists($tableName);
+        $this->assertFalse(Schema::hasTable($tableName));
+
+        // Test the function
+        ensure_table_exists($tableName, $migrationFile);
+
+        // Verify table was created
+        $this->assertTrue(Schema::hasTable($tableName));
+
+        // Cleanup
+        Schema::dropIfExists($tableName);
+        unlink($migrationFile);
+    }
+
+    public function test_ensure_table_exists_does_nothing_when_table_exists(): void
+    {
+        $tableName = 'test_ensure_table_existing';
+
+        // Create the table first
+        Schema::dropIfExists($tableName);
+        Schema::create($tableName, function ($table) {
+            $table->id();
+            $table->string('original_column'); // Not in createTempMigrationFile()
+        });
+        $this->assertTrue(Schema::hasTable($tableName));
+
+        // Create migration that would add different column (shouldn't be called)
+        $migrationFile = $this->createTempMigrationFile($tableName);
+
+        // Test the function - should not modify existing table
+        ensure_table_exists($tableName, $migrationFile);
+
+        // Table should still exist with original structure
+        $this->assertTrue(Schema::hasTable($tableName));
+        $this->assertTrue(Schema::hasColumn($tableName, 'original_column'));
+        $this->assertFalse(Schema::hasColumn($tableName, 'name')); // Migration column not added
+
+        // Cleanup
+        Schema::dropIfExists($tableName);
+        unlink($migrationFile);
+    }
+
+    public function test_ensure_table_exists_throws_exception_when_migration_file_missing(): void
+    {
+        $tableName                = 'test_ensure_table_nonexistent';
+        $nonExistentMigrationFile = '/path/to/nonexistent/migration.php';
+
+        // Ensure table doesn't exist
+        Schema::dropIfExists($tableName);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("Migration file not found: {$nonExistentMigrationFile}");
+
+        ensure_table_exists($tableName, $nonExistentMigrationFile);
     }
 }

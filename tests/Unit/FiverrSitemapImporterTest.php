@@ -38,12 +38,12 @@ class FiverrSitemapImporterTest extends TestCase
         $this->assertSame(250, $importer->getBatchSize());
     }
 
-    public function testGetSetCategoriesSitemapFilename(): void
+    public function testGetSetCategoriesSitemapPath(): void
     {
         $importer = new FiverrSitemapImporter();
         $tmpXml   = $this->makeTempXml('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-        $importer->setCategoriesSitemapFilename($tmpXml);
-        $this->assertSame($tmpXml, $importer->getCategoriesSitemapFilename());
+        $importer->setCategoriesSitemapPath($tmpXml);
+        $this->assertSame($tmpXml, $importer->getCategoriesSitemapPath());
     }
 
     public function testGetSetCategoriesTableName(): void
@@ -53,20 +53,20 @@ class FiverrSitemapImporterTest extends TestCase
         $this->assertSame('abc', $importer->getCategoriesTableName());
     }
 
-    public function testGetSetCategoriesMigrationFilename(): void
+    public function testGetSetCategoriesMigrationPath(): void
     {
         $importer = new FiverrSitemapImporter();
         $path     = __FILE__;
-        $importer->setCategoriesMigrationFilename($path);
-        $this->assertSame($path, $importer->getCategoriesMigrationFilename());
+        $importer->setCategoriesMigrationPath($path);
+        $this->assertSame($path, $importer->getCategoriesMigrationPath());
     }
 
-    public function testGetSetTagsSitemapFilename(): void
+    public function testGetSetTagsSitemapPath(): void
     {
         $importer = new FiverrSitemapImporter();
         $tmpXml   = $this->makeTempXml('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-        $importer->setTagsSitemapFilename($tmpXml);
-        $this->assertSame($tmpXml, $importer->getTagsSitemapFilename());
+        $importer->setTagsSitemapPath($tmpXml);
+        $this->assertSame($tmpXml, $importer->getTagsSitemapPath());
     }
 
     public function testGetSetTagsTableName(): void
@@ -76,12 +76,12 @@ class FiverrSitemapImporterTest extends TestCase
         $this->assertSame('fiverr_sitemap_tags_test', $importer->getTagsTableName());
     }
 
-    public function testGetSetTagsMigrationFilename(): void
+    public function testGetSetTagsMigrationPath(): void
     {
         $importer = new FiverrSitemapImporter();
         $path     = __FILE__;
-        $importer->setTagsMigrationFilename($path);
-        $this->assertSame($path, $importer->getTagsMigrationFilename());
+        $importer->setTagsMigrationPath($path);
+        $this->assertSame($path, $importer->getTagsMigrationPath());
     }
 
     public function testLoadDomParsesValidXml(): void
@@ -177,49 +177,10 @@ class FiverrSitemapImporterTest extends TestCase
         $this->assertSame(0, $res['skipped']);
     }
 
-    public function testEnsureCategoriesTableExistsThrowsWhenMigrationMissing(): void
-    {
-        $importer = new FiverrSitemapImporter();
-        Schema::dropIfExists($importer->getCategoriesTableName());
-        $importer->setCategoriesMigrationFilename(__DIR__ . '/../../no_such_migration_file.php');
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Migration file not found');
-        $importer->ensureCategoriesTableExists();
-    }
-
-    public function testEnsureCategoriesTableExists(): void
-    {
-        $importer = new FiverrSitemapImporter();
-        // Ensure table removed, then create
-        Schema::dropIfExists($importer->getCategoriesTableName());
-        $this->assertFalse(Schema::hasTable($importer->getCategoriesTableName()));
-        $importer->ensureCategoriesTableExists();
-        $this->assertTrue(Schema::hasTable($importer->getCategoriesTableName()));
-    }
-
-    public function testEnsureTagsTableExistsThrowsWhenMigrationMissing(): void
-    {
-        $importer = new FiverrSitemapImporter();
-        Schema::dropIfExists($importer->getTagsTableName());
-        $importer->setTagsMigrationFilename(__DIR__ . '/../../no_such_migration_file.php');
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Migration file not found');
-        $importer->ensureTagsTableExists();
-    }
-
-    public function testEnsureTagsTableExists(): void
-    {
-        $importer = new FiverrSitemapImporter();
-        Schema::dropIfExists($importer->getTagsTableName());
-        $this->assertFalse(Schema::hasTable($importer->getTagsTableName()));
-        $importer->ensureTagsTableExists();
-        $this->assertTrue(Schema::hasTable($importer->getTagsTableName()));
-    }
-
     public function testImportCategoriesThrowsWhenSitemapMissing(): void
     {
         $importer = new FiverrSitemapImporter();
-        $importer->setCategoriesSitemapFilename(__DIR__ . '/../../no_such_file.xml');
+        $importer->setCategoriesSitemapPath(__DIR__ . '/../../no_such_file.xml');
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Sitemap XML not found');
         $importer->importCategories();
@@ -244,7 +205,7 @@ class FiverrSitemapImporterTest extends TestCase
 </urlset>
 XML;
         $tmp = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
 
         $stats = $importer->importCategories();
         $this->assertSame(2, $stats['processed']);
@@ -257,7 +218,7 @@ XML;
     {
         $importer = new FiverrSitemapImporter();
         $tmp      = $this->makeTempXml('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(0, $stats['processed']);
         $this->assertSame(0, $stats['inserted']);
@@ -268,7 +229,7 @@ XML;
         $importer = new FiverrSitemapImporter();
         $xml      = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><priority>0.5</priority></url><url><loc>https://example.com/a</loc></url></urlset>';
         $tmp      = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(1, $stats['processed']);
         $this->assertSame(1, $stats['inserted']);
@@ -279,7 +240,7 @@ XML;
         $importer = new FiverrSitemapImporter();
         $xml      = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc><priority>high</priority></url></urlset>';
         $tmp      = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(1, $stats['inserted']);
         $row = DB::table($importer->getCategoriesTableName())->first();
@@ -291,7 +252,7 @@ XML;
         $importer = new FiverrSitemapImporter();
         $xml      = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml"><url><loc>https://example.com/a</loc><xhtml:link rel="alternate" href="not a url"/></url></urlset>';
         $tmp      = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(1, $stats['with_alternate']);
         $row = DB::table($importer->getCategoriesTableName())->first();
@@ -306,7 +267,7 @@ XML;
         $importer->setBatchSize(1);
         $xml = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>';
         $tmp = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(2, $stats['batches']);
     }
@@ -317,7 +278,7 @@ XML;
         $importer->setBatchSize(2);
         $xml = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>';
         $tmp = $this->makeTempXml($xml);
-        $importer->setCategoriesSitemapFilename($tmp);
+        $importer->setCategoriesSitemapPath($tmp);
         $stats = $importer->importCategories();
         $this->assertSame(1, $stats['batches']);
     }
@@ -325,7 +286,7 @@ XML;
     public function testImportTagsThrowsWhenSitemapMissing(): void
     {
         $importer = new FiverrSitemapImporter();
-        $importer->setTagsSitemapFilename(__DIR__ . '/../../no_such_tags.xml');
+        $importer->setTagsSitemapPath(__DIR__ . '/../../no_such_tags.xml');
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Sitemap XML not found');
         $importer->importTags();
@@ -343,7 +304,7 @@ XML;
 </urlset>
 XML;
         $tmp = $this->makeTempXml($xml);
-        $importer->setTagsSitemapFilename($tmp);
+        $importer->setTagsSitemapPath($tmp);
 
         $stats = $importer->importTags();
         $this->assertSame(2, $stats['processed']);
@@ -355,7 +316,7 @@ XML;
     {
         $importer = new FiverrSitemapImporter();
         $tmp      = $this->makeTempXml('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-        $importer->setTagsSitemapFilename($tmp);
+        $importer->setTagsSitemapPath($tmp);
         $stats = $importer->importTags();
         $this->assertSame(0, $stats['processed']);
         $this->assertSame(0, $stats['inserted']);
@@ -367,7 +328,7 @@ XML;
         $importer->setBatchSize(1);
         $xml = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>';
         $tmp = $this->makeTempXml($xml);
-        $importer->setTagsSitemapFilename($tmp);
+        $importer->setTagsSitemapPath($tmp);
         $stats = $importer->importTags();
         $this->assertSame(2, $stats['batches']);
     }
@@ -378,7 +339,7 @@ XML;
         $importer->setBatchSize(2);
         $xml = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>';
         $tmp = $this->makeTempXml($xml);
-        $importer->setTagsSitemapFilename($tmp);
+        $importer->setTagsSitemapPath($tmp);
         $stats = $importer->importTags();
         $this->assertSame(1, $stats['batches']);
     }

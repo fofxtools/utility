@@ -9,10 +9,10 @@ use FOfX\Utility\FiverrSitemapImporter;
 $importer = new FiverrSitemapImporter();
 $importer->setBatchSize(500);
 
-$importer->setCategoriesSitemapFilename(__DIR__ . '/../resources/sitemap_categories.xml');
+$importer->setCategoriesSitemapPath(__DIR__ . '/../resources/sitemap_categories.xml');
 $stats = $importer->importCategories();
 print_r($stats);
 
-$importer->setTagsSitemapFilename(__DIR__ . '/../resources/sitemap_tags.xml');
+$importer->setTagsSitemapPath(__DIR__ . '/../resources/sitemap_tags.xml');
 $stats = $importer->importTags();
 print_r($stats);

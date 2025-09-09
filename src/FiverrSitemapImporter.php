@@ -6,17 +6,16 @@ use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 
 class FiverrSitemapImporter
 {
-    protected int $batchSize                      = 100;
-    protected string $categoriesSitemapFilename   = __DIR__ . '/../resources/sitemap_categories.xml';
-    protected string $categoriesTableName         = 'fiverr_sitemap_categories';
-    protected string $categoriesMigrationFilename = __DIR__ . '/../database/migrations/2025_09_02_181130_create_fiverr_sitemap_categories_table.php';
-    protected string $tagsSitemapFilename         = __DIR__ . '/../resources/sitemap_tags.xml';
-    protected string $tagsTableName               = 'fiverr_sitemap_tags';
-    protected string $tagsMigrationFilename       = __DIR__ . '/../database/migrations/2025_09_03_211440_create_fiverr_sitemap_tags_table.php';
+    protected int $batchSize                  = 100;
+    protected string $categoriesSitemapPath   = __DIR__ . '/../resources/sitemap_categories.xml';
+    protected string $categoriesTableName     = 'fiverr_sitemap_categories';
+    protected string $categoriesMigrationPath = __DIR__ . '/../database/migrations/2025_09_02_181130_create_fiverr_sitemap_categories_table.php';
+    protected string $tagsSitemapPath         = __DIR__ . '/../resources/sitemap_tags.xml';
+    protected string $tagsTableName           = 'fiverr_sitemap_tags';
+    protected string $tagsMigrationPath       = __DIR__ . '/../database/migrations/2025_09_03_211440_create_fiverr_sitemap_tags_table.php';
 
     /**
      * Constructor
@@ -51,25 +50,25 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Get the categories sitemap filename.
+     * Get the categories sitemap path.
      *
      * @return string
      */
-    public function getCategoriesSitemapFilename(): string
+    public function getCategoriesSitemapPath(): string
     {
-        return $this->categoriesSitemapFilename;
+        return $this->categoriesSitemapPath;
     }
 
     /**
-     * Set the categories sitemap filename.
+     * Set the categories sitemap path.
      *
-     * @param string $filename
+     * @param string $path
      *
      * @return void
      */
-    public function setCategoriesSitemapFilename(string $filename): void
+    public function setCategoriesSitemapPath(string $path): void
     {
-        $this->categoriesSitemapFilename = $filename;
+        $this->categoriesSitemapPath = $path;
     }
 
     /**
@@ -95,47 +94,47 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Get the categories migration filename.
+     * Get the categories migration path.
      *
      * @return string
      */
-    public function getCategoriesMigrationFilename(): string
+    public function getCategoriesMigrationPath(): string
     {
-        return $this->categoriesMigrationFilename;
+        return $this->categoriesMigrationPath;
     }
 
     /**
-     * Set the categories migration filename.
+     * Set the categories migration path.
      *
-     * @param string $filename
+     * @param string $path
      *
      * @return void
      */
-    public function setCategoriesMigrationFilename(string $filename): void
+    public function setCategoriesMigrationPath(string $path): void
     {
-        $this->categoriesMigrationFilename = $filename;
+        $this->categoriesMigrationPath = $path;
     }
 
     /**
-     * Get the tags sitemap filename.
+     * Get the tags sitemap path.
      *
      * @return string
      */
-    public function getTagsSitemapFilename(): string
+    public function getTagsSitemapPath(): string
     {
-        return $this->tagsSitemapFilename;
+        return $this->tagsSitemapPath;
     }
 
     /**
-     * Set the tags sitemap filename.
+     * Set the tags sitemap path.
      *
-     * @param string $filename
+     * @param string $path
      *
      * @return void
      */
-    public function setTagsSitemapFilename(string $filename): void
+    public function setTagsSitemapPath(string $path): void
     {
-        $this->tagsSitemapFilename = $filename;
+        $this->tagsSitemapPath = $path;
     }
 
     /**
@@ -161,25 +160,25 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Get the tags migration filename.
+     * Get the tags migration path.
      *
      * @return string
      */
-    public function getTagsMigrationFilename(): string
+    public function getTagsMigrationPath(): string
     {
-        return $this->tagsMigrationFilename;
+        return $this->tagsMigrationPath;
     }
 
     /**
-     * Set the tags migration filename.
+     * Set the tags migration path.
      *
-     * @param string $filename
+     * @param string $path
      *
      * @return void
      */
-    public function setTagsMigrationFilename(string $filename): void
+    public function setTagsMigrationPath(string $path): void
     {
-        $this->tagsMigrationFilename = $filename;
+        $this->tagsMigrationPath = $path;
     }
 
     /**
@@ -277,66 +276,18 @@ class FiverrSitemapImporter
     }
 
     /**
-     * Ensure the categories table exists; auto-create using the configured migration if missing.
-     *
-     * @throws \RuntimeException If migration file missing
-     *
-     * @return void
-     */
-    public function ensureCategoriesTableExists(): void
-    {
-        if (Schema::hasTable($this->categoriesTableName)) {
-            Log::debug('Table already exists', ['table' => $this->categoriesTableName]);
-
-            return;
-        }
-
-        $migrationPath = $this->categoriesMigrationFilename;
-        if (!file_exists($migrationPath)) {
-            throw new \RuntimeException("Migration file not found: {$migrationPath}");
-        }
-        $migration = require $migrationPath;
-        $migration->up();
-        Log::debug('Created missing table', ['table' => $this->categoriesTableName]);
-    }
-
-    /**
-     * Ensure the tags table exists; auto-create using the configured migration if missing.
-     *
-     * @throws \RuntimeException If migration file missing
-     *
-     * @return void
-     */
-    public function ensureTagsTableExists(): void
-    {
-        if (Schema::hasTable($this->tagsTableName)) {
-            Log::debug('Table already exists', ['table' => $this->tagsTableName]);
-
-            return;
-        }
-
-        $migrationPath = $this->tagsMigrationFilename;
-        if (!file_exists($migrationPath)) {
-            throw new \RuntimeException("Migration file not found: {$migrationPath}");
-        }
-        $migration = require $migrationPath;
-        $migration->up();
-        Log::debug('Created missing table', ['table' => $this->tagsTableName]);
-    }
-
-    /**
      * Import the categories sitemap into the categories table in batches.
      *
-     * @throws \RuntimeException If required files are missing or XML has no <url> entries
+     * @throws \RuntimeException If required files are missing or the XML cannot be parsed
      *
      * @return array{processed:int,with_alternate:int,inserted:int,skipped:int,batches:int,duration_sec:float}
      */
     public function importCategories(): array
     {
         $start = microtime(true);
-        $this->ensureCategoriesTableExists();
+        ensure_table_exists($this->categoriesTableName, $this->categoriesMigrationPath);
 
-        $sitemapPath = $this->categoriesSitemapFilename;
+        $sitemapPath = $this->categoriesSitemapPath;
         if (!file_exists($sitemapPath)) {
             throw new \RuntimeException("Sitemap XML not found: {$sitemapPath}");
         }
@@ -350,7 +301,7 @@ class FiverrSitemapImporter
         $xpath    = $this->loadDom($sitemapPath);
         $urlNodes = $xpath->query('//sm:url');
         if (!$urlNodes) {
-            throw new \RuntimeException('No <url> entries found in sitemap.');
+            throw new \RuntimeException('Failed to query entries from sitemap XML.');
         }
 
         $total         = 0;
@@ -467,9 +418,9 @@ class FiverrSitemapImporter
     public function importTags(): array
     {
         $start = microtime(true);
-        $this->ensureTagsTableExists();
+        ensure_table_exists($this->tagsTableName, $this->tagsMigrationPath);
 
-        $sitemapPath = $this->tagsSitemapFilename;
+        $sitemapPath = $this->tagsSitemapPath;
         if (!file_exists($sitemapPath)) {
             throw new \RuntimeException("Sitemap XML not found: {$sitemapPath}");
         }

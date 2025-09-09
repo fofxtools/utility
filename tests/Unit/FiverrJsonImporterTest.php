@@ -1,0 +1,601 @@
+<?php
+
+declare(strict_types=1);
+
+namespace FOfX\Utility\Tests\Unit;
+
+use FOfX\Utility\FiverrJsonImporter;
+use FOfX\Utility\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+
+class FiverrJsonImporterTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_getSetExcludedColumns(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setExcludedColumns(['foo', 'bar']);
+        $this->assertSame(['foo', 'bar'], $importer->getExcludedColumns());
+    }
+
+    public function test_getSetJsonFlags(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setJsonFlags(JSON_UNESCAPED_SLASHES);
+        $this->assertSame(JSON_UNESCAPED_SLASHES, $importer->getJsonFlags());
+    }
+
+    public function test_getSetColumnPathDelimiter(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setColumnPathDelimiter('::');
+        $this->assertSame('::', $importer->getColumnPathDelimiter());
+    }
+
+    public function test_table_name_accessors(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setFiverrListingsTable('x_listings');
+        $importer->setFiverrGigsTable('x_gigs');
+        $importer->setFiverrSellerProfilesTable('x_sellers');
+        $importer->setFiverrListingsGigsTable('x_listings_gigs');
+
+        $this->assertSame('x_listings', $importer->getFiverrListingsTable());
+        $this->assertSame('x_gigs', $importer->getFiverrGigsTable());
+        $this->assertSame('x_sellers', $importer->getFiverrSellerProfilesTable());
+        $this->assertSame('x_listings_gigs', $importer->getFiverrListingsGigsTable());
+    }
+
+    public function test_migration_path_accessors(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $importer->setFiverrListingsMigrationPath('/tmp/a.php');
+        $importer->setFiverrGigsMigrationPath('/tmp/b.php');
+        $importer->setFiverrSellerProfilesMigrationPath('/tmp/c.php');
+        $importer->setFiverrListingsGigsMigrationPath('/tmp/d.php');
+
+        $this->assertSame('/tmp/a.php', $importer->getFiverrListingsMigrationPath());
+        $this->assertSame('/tmp/b.php', $importer->getFiverrGigsMigrationPath());
+        $this->assertSame('/tmp/c.php', $importer->getFiverrSellerProfilesMigrationPath());
+        $this->assertSame('/tmp/d.php', $importer->getFiverrListingsGigsMigrationPath());
+    }
+
+    public function test_loadJsonFile_success(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tmpOk    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($tmpOk, json_encode(['a' => 1]));
+
+        try {
+            $data = $importer->loadJsonFile($tmpOk);
+            $this->assertSame(['a' => 1], $data);
+        } finally { // Use finally to ensure cleanup even if assertion fails
+            unlink($tmpOk);
+        }
+    }
+
+    public function test_loadJsonFile_invalid_json_throws(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tmpBad   = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($tmpBad, '{not-json');
+        $this->expectException(\RuntimeException::class);
+
+        try {
+            $importer->loadJsonFile($tmpBad);
+        } finally {
+            unlink($tmpBad);
+        }
+    }
+
+    public function test_loadJsonFile_missing_throws(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->expectException(\RuntimeException::class);
+        $importer->loadJsonFile('/definitely/missing/file.json');
+    }
+
+    public function test_getTableColumns_returns_columns(): void
+    {
+        Schema::dropIfExists('tmp_cols');
+        Schema::create('tmp_cols', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->text('bio')->nullable();
+            $table->timestamps();
+        });
+
+        $importer = new FiverrJsonImporter();
+        $columns  = $importer->getTableColumns('tmp_cols');
+
+        $this->assertContains('id', $columns);
+        $this->assertContains('name', $columns);
+        $this->assertContains('bio', $columns);
+        $this->assertContains('created_at', $columns);
+        $this->assertContains('updated_at', $columns);
+    }
+
+    public function test_getTextColumns_identifies_text_like_columns_for_sqlite(): void
+    {
+        Schema::dropIfExists('tmp_text');
+        Schema::create('tmp_text', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->text('bio')->nullable();
+            $table->mediumText('summary')->nullable();
+            $table->longText('description')->nullable();
+            $table->text('notes')->nullable();
+            $table->timestamps();
+        });
+
+        $importer = new FiverrJsonImporter();
+        $textCols = $importer->getTextColumns('tmp_text');
+
+        $this->assertContains('bio', $textCols);
+        $this->assertContains('summary', $textCols);
+        $this->assertContains('description', $textCols);
+        $this->assertContains('notes', $textCols);
+        $this->assertNotContains('name', $textCols);
+    }
+
+    public function test_removeExcludedColumns_filters_out_auto_managed(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $cols     = ['id', 'name', 'created_at', 'bio', 'updated_at', 'processed_at', 'processed_status'];
+        $filtered = $importer->removeExcludedColumns($cols);
+
+        $this->assertSame(['name', 'bio'], $filtered);
+    }
+
+    public function test_removeExcludedColumns_respects_custom_excluded(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setExcludedColumns(['name', 'custom_field']);
+        $cols     = ['id', 'name', 'created_at', 'bio', 'updated_at', 'processed_at', 'processed_status', 'custom_field'];
+        $filtered = $importer->removeExcludedColumns($cols);
+
+        $this->assertSame(['id', 'created_at', 'bio', 'updated_at', 'processed_at', 'processed_status'], $filtered);
+    }
+
+    public function test_extractAndEncode_maps_and_encodes_text_columns(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $data = [
+            'user' => [
+                'name'    => 'Alice',
+                'profile' => ['bio' => ['k' => 'v']],
+            ],
+            'processed_status' => ['state' => 'ok'],
+        ];
+        $columns  = ['user__name', 'user__profile__bio', 'processed_status'];
+        $textCols = ['user__profile__bio', 'processed_status']; // processed_status should NOT be encoded
+
+        $mapped = $importer->extractAndEncode($data, $columns, $textCols);
+
+        $this->assertSame('Alice', $mapped['user__name']);
+        $this->assertIsString($mapped['user__profile__bio']);
+        $this->assertSame(json_encode(['k' => 'v'], $importer->getJsonFlags()), $mapped['user__profile__bio']);
+        $this->assertIsArray($mapped['processed_status']); // not JSON-encoded
+    }
+
+    public function test_normalizeRows_wraps_assoc_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $refClass = new \ReflectionClass(FiverrJsonImporter::class);
+        $method   = $refClass->getMethod('normalizeRows');
+        $method->setAccessible(true);
+
+        $assoc   = ['a' => 1];
+        $wrapped = $method->invoke($importer, $assoc);
+        $this->assertIsArray($wrapped);
+        $this->assertCount(1, $wrapped);
+        $this->assertSame($assoc, $wrapped[0]);
+    }
+
+    public function test_normalizeRows_keeps_list_as_is(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $refClass = new \ReflectionClass(FiverrJsonImporter::class);
+        $method   = $refClass->getMethod('normalizeRows');
+        $method->setAccessible(true);
+
+        $list = [['a' => 1], ['a' => 2]];
+        $same = $method->invoke($importer, $list);
+        $this->assertSame($list, $same);
+    }
+
+    public function test_insertRows_inserts_and_timestamps_and_ignores_duplicates(): void
+    {
+        Schema::dropIfExists('tmp_insert');
+        Schema::create('tmp_insert', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->text('meta')->nullable();
+            $table->timestamps();
+            $table->unique('name');
+        });
+
+        $importer = new FiverrJsonImporter();
+
+        // Single row insert
+        $res1 = $importer->insertRows('tmp_insert', ['name' => 'A', 'meta' => 'x']);
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res1);
+        $rowA = DB::table('tmp_insert')->where('name', 'A')->first();
+        $this->assertNotNull($rowA->created_at);
+        $this->assertNotNull($rowA->updated_at);
+
+        // Duplicate insert ignored
+        $res2 = $importer->insertRows('tmp_insert', ['name' => 'A']);
+        $this->assertSame(['inserted' => 0, 'skipped' => 1], $res2);
+        $count = DB::table('tmp_insert')->count();
+        $this->assertSame(1, $count);
+
+        // Batch insert with one new and one duplicate
+        $res3 = $importer->insertRows('tmp_insert', [
+            ['name' => 'B'],
+            ['name' => 'A'], // duplicate
+        ]);
+        $this->assertSame(['inserted' => 1, 'skipped' => 1], $res3);
+        $count = DB::table('tmp_insert')->count();
+        $this->assertSame(2, $count);
+
+        $rowB = DB::table('tmp_insert')->where('name', 'B')->first();
+        $this->assertNotNull($rowB->created_at);
+        $this->assertNotNull($rowB->updated_at);
+    }
+
+    public function test_insertRows_returns_zero_on_empty_input(): void
+    {
+        Schema::dropIfExists('tmp_insert_empty');
+        Schema::create('tmp_insert_empty', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+
+        $importer = new FiverrJsonImporter();
+        $res      = $importer->insertRows('tmp_insert_empty', []);
+        $this->assertSame(['inserted' => 0, 'skipped' => 0], $res);
+        $this->assertSame(0, DB::table('tmp_insert_empty')->count());
+    }
+
+    public function test_insertRows_preserves_provided_timestamps(): void
+    {
+        Schema::dropIfExists('tmp_insert_ts');
+        Schema::create('tmp_insert_ts', function ($table) {
+            $table->id();
+            $table->string('name')->unique();
+            $table->timestamps();
+        });
+
+        $importer = new FiverrJsonImporter();
+        $created  = '2020-01-01 00:00:00';
+        $updated  = '2020-01-02 00:00:00';
+        $res      = $importer->insertRows('tmp_insert_ts', [
+            'name'       => 'A',
+            'created_at' => $created,
+            'updated_at' => $updated,
+        ]);
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+
+        $row = DB::table('tmp_insert_ts')->where('name', 'A')->first();
+        $this->assertSame($created, (string) $row->created_at);
+        $this->assertSame($updated, (string) $row->updated_at);
+    }
+
+    public function test_importListingsJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Minimal valid payload: must include unique listingAttributes__id
+        $payload = [
+            'listingAttributes' => [
+                'id' => 'L1',
+            ],
+            'listings' => [
+                ['gigs' => []],
+            ],
+        ];
+
+        $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $res = $importer->importListingsJson($json);
+            $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+            $this->assertSame(1, DB::table($importer->getFiverrListingsTable())->count());
+        } finally {
+            unlink($json);
+        }
+    }
+
+    public function test_importGigJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Minimal valid payload: must include unique general.gigId
+        $payload = [
+            'general' => [
+                'gigId' => 101,
+            ],
+        ];
+
+        $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $res = $importer->importGigJson($json);
+            $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+            $this->assertSame(1, DB::table($importer->getFiverrGigsTable())->count());
+        } finally {
+            unlink($json);
+        }
+    }
+
+    public function test_importSellerProfileJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Minimal valid payload: must include unique seller.user.id
+        $payload = [
+            'seller' => [
+                'user' => [
+                    'id' => 'S1',
+                ],
+            ],
+        ];
+
+        $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $res = $importer->importSellerProfileJson($json);
+            $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+            $this->assertSame(1, DB::table($importer->getFiverrSellerProfilesTable())->count());
+        } finally {
+            unlink($json);
+        }
+    }
+
+    public function test_resetListingsProcessed_clears_flags_and_returns_count(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed 2 listings via importer to ensure schema and minimal required fields
+        $payload1 = ['listingAttributes' => ['id' => 'L10'], 'listings' => [['gigs' => []]]];
+        $payload2 = ['listingAttributes' => ['id' => 'L11'], 'listings' => [['gigs' => []]]];
+        $json1    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        $json2    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json1, json_encode($payload1));
+        file_put_contents($json2, json_encode($payload2));
+
+        try {
+            $importer->importListingsJson($json1);
+            $importer->importListingsJson($json2);
+        } finally {
+            unlink($json1);
+            unlink($json2);
+        }
+
+        // Mark them processed
+        DB::table($importer->getFiverrListingsTable())->update([
+            'processed_at'     => now(),
+            'processed_status' => json_encode(['x' => 1], $importer->getJsonFlags()),
+        ]);
+
+        // Reset and assert
+        $updated = $importer->resetListingsProcessed();
+        $this->assertSame(2, $updated);
+        $rows = DB::table($importer->getFiverrListingsTable())->get();
+        $this->assertCount(2, $rows);
+
+        foreach ($rows as $r) {
+            $this->assertNull($r->processed_at);
+            $this->assertNull($r->processed_status);
+        }
+    }
+
+    public function test_resetListingsProcessed_noop_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $updated  = $importer->resetListingsProcessed();
+        $this->assertSame(0, $updated);
+    }
+
+    public function test_processListingsGigsBatch_processes_at_most_batch_size_and_marks_processed(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed three listings with gigs
+        $makePayload = function (string $id, array $gigIds): array {
+            return [
+                'listingAttributes' => ['id' => $id],
+                'listings'          => [['gigs' => array_map(fn ($gid) => ['gigId' => $gid, 'title' => 'T' . $gid], $gigIds)]],
+            ];
+        };
+        $payloads = [
+            $makePayload('B1', [9101, 9102]),
+            $makePayload('B2', [9201, 9202]),
+            $makePayload('B3', [9301]),
+        ];
+
+        foreach ($payloads as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        // First batch: limit 2 -> should process B1 and B2 only
+        $stats1 = $importer->processListingsGigsBatch(2);
+        $this->assertSame(2, $stats1['rows_processed']);
+        $this->assertSame(4, $stats1['gigs_seen']);
+        $this->assertSame(4, $stats1['inserted']);
+
+        // Verify two processed, one remaining
+        $processedCount = DB::table($importer->getFiverrListingsTable())->whereNotNull('processed_at')->count();
+        $this->assertSame(2, $processedCount);
+        $remainingCount = DB::table($importer->getFiverrListingsTable())->whereNull('processed_at')->count();
+        $this->assertSame(1, $remainingCount);
+        $this->assertSame(4, DB::table($importer->getFiverrListingsGigsTable())->count());
+
+        // Second batch: should process the remaining B3
+        $stats2 = $importer->processListingsGigsBatch(2);
+        $this->assertSame(1, $stats2['rows_processed']);
+        $this->assertSame(1, $stats2['gigs_seen']);
+        $this->assertSame(1, $stats2['inserted']);
+
+        $this->assertSame(0, DB::table($importer->getFiverrListingsTable())->whereNull('processed_at')->count());
+        $this->assertSame(5, DB::table($importer->getFiverrListingsGigsTable())->count());
+    }
+
+    public function test_processListingsGigsBatch_no_unprocessed_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        // With no listings, batch should return zeros
+        $stats = $importer->processListingsGigsBatch(5);
+        $this->assertSame(['rows_processed' => 0, 'gigs_seen' => 0, 'inserted' => 0], $stats);
+    }
+
+    public function test_processListingsGigsBatch_handles_invalid_json_gracefully(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed one listing with minimal valid structure, then corrupt the listings JSON
+        $payload = ['listingAttributes' => ['id' => 'E1'], 'listings' => [['gigs' => []]]];
+        $json    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $importer->importListingsJson($json);
+        } finally {
+            unlink($json);
+        }
+
+        // Corrupt the listings column directly to simulate malformed JSON
+        DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', 'E1')
+            ->update(['listings' => '{bad-json']);
+
+        $stats = $importer->processListingsGigsBatch(5);
+        $this->assertSame(1, $stats['rows_processed']);
+        $this->assertSame(0, $stats['gigs_seen']);
+        $this->assertSame(0, $stats['inserted']);
+
+        $row = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'E1')->first();
+        $this->assertNotNull($row->processed_at);
+        $this->assertNotNull($row->processed_status);
+    }
+
+    public function test_processListingsGigsBatch_handles_missing_gigs_key(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $payload = ['listingAttributes' => ['id' => 'E2'], 'listings' => [['no_gigs' => true]]];
+        $json    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $importer->importListingsJson($json);
+        } finally {
+            unlink($json);
+        }
+
+        $stats = $importer->processListingsGigsBatch(5);
+        $this->assertSame(1, $stats['rows_processed']);
+        $this->assertSame(0, $stats['gigs_seen']);
+        $this->assertSame(0, $stats['inserted']);
+
+        $row = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'E2')->first();
+        $this->assertNotNull($row->processed_at);
+        $this->assertNotNull($row->processed_status);
+    }
+
+    public function test_processListingsGigsAll_inserts_gigs_and_marks_processed(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed one listing with two gigs inside listings[0].gigs
+        $payload = [
+            'listingAttributes' => ['id' => 'L20'],
+            'listings'          => [
+                [
+                    'gigs' => [
+                        ['gigId' => 9001, 'title' => 'Gig A'],
+                        ['gigId' => 9002, 'title' => 'Gig B'],
+                    ],
+                ],
+            ],
+        ];
+        $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($json, json_encode($payload));
+
+        try {
+            $importer->importListingsJson($json);
+        } finally {
+            unlink($json);
+        }
+
+        // Process all (single batch here)
+        $stats = $importer->processListingsGigsAll(50);
+        $this->assertSame(1, $stats['rows_processed']);
+        $this->assertSame(2, $stats['gigs_seen']);
+        $this->assertSame(2, $stats['inserted']);
+
+        // Verify gigs inserted and timestamps populated
+        $this->assertSame(2, DB::table($importer->getFiverrListingsGigsTable())->count());
+        $gigs = DB::table($importer->getFiverrListingsGigsTable())->orderBy('gigId')->get();
+        $this->assertSame(9001, (int) $gigs[0]->gigId);
+        $this->assertSame(9002, (int) $gigs[1]->gigId);
+        $this->assertNotNull($gigs[0]->created_at);
+        $this->assertNotNull($gigs[0]->updated_at);
+
+        // Listing should be marked processed
+        $listing = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'L20')->first();
+        $this->assertNotNull($listing->processed_at);
+        $this->assertNotNull($listing->processed_status);
+    }
+
+    public function test_processListingsGigsAll_dedupes_duplicate_gigs_across_listings(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Helper function to make a payload based on gigId
+        $makePayload = function (string $id, int $gigId): array {
+            return [
+                'listingAttributes' => ['id' => $id],
+                'listings'          => [['gigs' => [['gigId' => $gigId, 'title' => 'T' . $gigId]]]],
+            ];
+        };
+        // Two listings referencing the same gigId
+        $p1 = $makePayload('D1', 9901);
+        $p2 = $makePayload('D2', 9901);
+
+        foreach ([$p1, $p2] as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $stats = $importer->processListingsGigsAll(5);
+        $this->assertSame(2, $stats['rows_processed']);
+        $this->assertSame(2, DB::table($importer->getFiverrListingsTable())->whereNotNull('processed_at')->count());
+
+        // Only one row for the duplicate gigId due to unique+insertOrIgnore
+        $this->assertSame(1, DB::table($importer->getFiverrListingsGigsTable())->where('gigId', 9901)->count());
+    }
+}
