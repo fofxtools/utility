@@ -25,11 +25,13 @@ class FiverrJsonImporter
     protected string $fiverrGigsTable           = 'fiverr_gigs';
     protected string $fiverrSellerProfilesTable = 'fiverr_seller_profiles';
     protected string $fiverrListingsGigsTable   = 'fiverr_listings_gigs';
+    protected string $fiverrListingsStatsTable  = 'fiverr_listings_stats';
 
     protected string $fiverrListingsMigrationPath       = __DIR__ . '/../database/migrations/2025_09_05_175701_create_fiverr_listings_table.php';
     protected string $fiverrGigsMigrationPath           = __DIR__ . '/../database/migrations/2025_09_06_005341_create_fiverr_gigs_table.php';
     protected string $fiverrSellerProfilesMigrationPath = __DIR__ . '/../database/migrations/2025_09_06_021235_create_fiverr_seller_profiles_table.php';
     protected string $fiverrListingsGigsMigrationPath   = __DIR__ . '/../database/migrations/2025_09_06_030326_create_fiverr_listings_gigs_table.php';
+    protected string $fiverrListingsStatsMigrationPath  = __DIR__ . '/../database/migrations/2025_09_10_003356_create_fiverr_listings_stats_table.php';
 
     public function getExcludedColumns(): array
     {
@@ -134,6 +136,26 @@ class FiverrJsonImporter
     public function getFiverrListingsGigsMigrationPath(): string
     {
         return $this->fiverrListingsGigsMigrationPath;
+    }
+
+    public function getFiverrListingsStatsTable(): string
+    {
+        return $this->fiverrListingsStatsTable;
+    }
+
+    public function setFiverrListingsStatsTable(string $name): void
+    {
+        $this->fiverrListingsStatsTable = $name;
+    }
+
+    public function getFiverrListingsStatsMigrationPath(): string
+    {
+        return $this->fiverrListingsStatsMigrationPath;
+    }
+
+    public function setFiverrListingsStatsMigrationPath(string $path): void
+    {
+        $this->fiverrListingsStatsMigrationPath = $path;
     }
 
     public function setFiverrListingsGigsMigrationPath(string $path): void
@@ -505,13 +527,6 @@ class FiverrJsonImporter
         ];
     }
 
-    /**
-     * Process all unprocessed listings in batches until none remain.
-     *
-     * @param int $batchSize
-     *
-     * @return array{rows_processed:int,gigs_seen:int,inserted:int}
-     */
     public function processListingsGigsAll(int $batchSize = 100): array
     {
         $grandRows = 0;
@@ -530,5 +545,383 @@ class FiverrJsonImporter
             'gigs_seen'      => $grandGigs,
             'inserted'       => $grandIns,
         ];
+    }
+
+    /**
+     * Map seller level string to numeric value.
+     * 'na' => 0, 'level_one_seller' => 1, 'level_two_seller' => 2, 'top_rated_seller' => 3
+     *
+     * @param string $level Raw seller level string
+     *
+     * @return int Numeric level in [0..3]
+     */
+    public function getSellerLevelNumeric(string $level): int
+    {
+        $map = [
+            'na'               => 0,
+            'level_one_seller' => 1,
+            'level_two_seller' => 2,
+            'top_rated_seller' => 3,
+        ];
+
+        $key = strtolower(trim($level));
+
+        return $map[$key] ?? 0;
+    }
+
+    /**
+     * Calculate counts and weighted average of seller levels.
+     *
+     * Each item's $field is mapped via getSellerLevelNumeric() and contributes 1 weight
+     * to the average. Returns bucket counts and the weighted average.
+     *
+     * @param array<int,array<string,mixed>> $items List of items (e.g., gigs or facet buckets)
+     * @param string                         $field Field name that holds the seller level string (default 'seller_level')
+     *
+     * @return array{na:int,level_one:int,level_two:int,top_rated:int,weighted_avg:float|null}
+     */
+    public function calculateSellerLevelStats(array $items, string $field = 'seller_level'): array
+    {
+        $counts = ['na' => 0, 'level_one' => 0, 'level_two' => 0, 'top_rated' => 0];
+        $sum    = 0.0;
+        $total  = 0;
+
+        foreach ($items as $it) {
+            $lvl = (string) ($it[$field] ?? 'na');
+            $num = $this->getSellerLevelNumeric($lvl);
+            $sum += $num;
+            $total++;
+
+            switch ($num) {
+                case 3:
+                    $counts['top_rated']++;
+
+                    break;
+                case 2:
+                    $counts['level_two']++;
+
+                    break;
+                case 1:
+                    $counts['level_one']++;
+
+                    break;
+                default:
+                    $counts['na']++;
+
+                    break;
+            }
+        }
+
+        $avg = $total > 0 ? $sum / $total : null;
+
+        return [
+            'na'           => $counts['na'],
+            'level_one'    => $counts['level_one'],
+            'level_two'    => $counts['level_two'],
+            'top_rated'    => $counts['top_rated'],
+            'weighted_avg' => $avg,
+        ];
+    }
+
+    /**
+     * Extract a facet count from an array of objects like: [{ id: 'X', count: N }, ...]
+     *
+     * @param array<int,array<string,mixed>> $facets   Array of facet objects
+     * @param string                         $targetId The id to match
+     *
+     * @return int|null Integer count when found (0 if present but non-integer), null when not present
+     */
+    public function extractFacetCount(array $facets, string $targetId): ?int
+    {
+        foreach ($facets as $row) {
+            $id = (string) ($row['id'] ?? '');
+            if ($id === $targetId) {
+                $cnt = $row['count'] ?? null;
+                if (is_int($cnt)) {
+                    return $cnt;
+                }
+                if (is_numeric($cnt)) {
+                    return (int) $cnt;
+                }
+
+                return 0; // present but non-integer
+            }
+        }
+
+        return null; // not present
+    }
+
+    /**
+     * Normalize gig type to one of the supported buckets.
+     * Returns one of: 'promoted_gigs','fiverr_choice','fixed_pricing','pro','missing','other'
+     *
+     * @param string|null $type Raw type string
+     *
+     * @return string Normalized bucket name
+     */
+    public function categorizeGigType(?string $type): string
+    {
+        if ($type === null || trim($type) === '') {
+            return 'missing';
+        }
+
+        $val = strtolower(trim($type));
+
+        return in_array($val, ['promoted_gigs', 'fiverr_choice', 'fixed_pricing', 'pro'], true)
+            ? $val
+            : 'other';
+    }
+
+    /**
+     * Compute a single stats row from a fiverr_listings row.
+     *
+     * Decodes the row's JSON fields (listings, facets, price buckets) and computes all counts and
+     * weighted averages as described in the fiverr_listings_stats migration comments. Also copies
+     * through scalar context fields from the listings row.
+     *
+     * @param array<string,mixed> $listingsRow Listings row as an associative array
+     *
+     * @return array<string,mixed> Prepared stats row ready for insertion into fiverr_listings_stats
+     */
+    public function computeListingsStatsRow(array $listingsRow): array
+    {
+        // Base copy-through fields from listings row
+        $out = [
+            'fiverr_listings_row_id'                        => (int) ($listingsRow['id'] ?? 0),
+            'listingAttributes__id'                         => $listingsRow['listingAttributes__id'] ?? null,
+            'currency__rate'                                => $listingsRow['currency__rate'] ?? null,
+            'rawListingData__has_more'                      => $listingsRow['rawListingData__has_more'] ?? null,
+            'countryCode'                                   => $listingsRow['countryCode'] ?? null,
+            'assumedLanguage'                               => $listingsRow['assumedLanguage'] ?? null,
+            'v2__report__search_total_results'              => $listingsRow['v2__report__search_total_results'] ?? null,
+            'appData__pagination__page'                     => $listingsRow['appData__pagination__page'] ?? null,
+            'appData__pagination__page_size'                => $listingsRow['appData__pagination__page_size'] ?? null,
+            'appData__pagination__total'                    => $listingsRow['appData__pagination__total'] ?? null,
+            'tracking__isNonExperiential'                   => $listingsRow['tracking__isNonExperiential'] ?? null,
+            'tracking__fiverrChoiceGigPosition'             => $listingsRow['tracking__fiverrChoiceGigPosition'] ?? null,
+            'tracking__hasFiverrChoiceGigs'                 => $listingsRow['tracking__hasFiverrChoiceGigs'] ?? null,
+            'tracking__hasPromotedGigs'                     => $listingsRow['tracking__hasPromotedGigs'] ?? null,
+            'tracking__promotedGigsCount'                   => $listingsRow['tracking__promotedGigsCount'] ?? null,
+            'tracking__searchAutoComplete__is_autocomplete' => $listingsRow['tracking__searchAutoComplete__is_autocomplete'] ?? null,
+        ];
+
+        // Decode listings JSON and get gigs list
+        $gigs = [];
+        if (!empty($listingsRow['listings']) && is_string($listingsRow['listings'])) {
+            $decoded = json_decode($listingsRow['listings'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                if (isset($decoded[0]) && is_array($decoded[0]) && isset($decoded[0]['gigs']) && is_array($decoded[0]['gigs'])) {
+                    $gigs = $decoded[0]['gigs'];
+                }
+            }
+        }
+
+        // Utility closures
+        $addNum = static function (array &$arr, $v): void {
+            if (is_int($v) || is_float($v) || (is_string($v) && is_numeric($v))) {
+                $arr[] = (float) $v;
+            }
+        };
+        $avg = static function (array $nums): ?float {
+            $n = count($nums);
+            if ($n === 0) {
+                return null;
+            }
+
+            return array_sum($nums) / $n;
+        };
+
+        // Initialize counters
+        $typeCounts = [
+            'promoted_gigs' => 0,
+            'fiverr_choice' => 0,
+            'fixed_pricing' => 0,
+            'pro'           => 0,
+            'missing'       => 0,
+            'other'         => 0,
+        ];
+        $cnt_is_fiverr_choice          = 0;
+        $cnt_packages_rec_extra_fast   = 0;
+        $cnt_is_pro                    = 0;
+        $cnt_is_featured               = 0;
+        $cnt_seller_online             = 0;
+        $cnt_offer_consultation        = 0;
+        $cnt_personalized_pricing_fail = 0;
+        $cnt_has_recurring_option      = 0;
+        $cnt_is_seller_unavailable     = 0;
+        $cnt_extra_fast                = 0;
+
+        $nums_rec_price      = [];
+        $nums_rec_duration   = [];
+        $nums_rec_price_tier = [];
+        $nums_buy_rev_cnt    = [];
+        $nums_buy_rev        = [];
+        $nums_seller_cnt     = [];
+        $nums_seller_score   = [];
+        $nums_price_i        = [];
+        $nums_package_i      = [];
+        $nums_num_packages   = [];
+
+        $sellerLevelItems = [];
+
+        foreach ($gigs as $g) {
+            if (!is_array($g)) {
+                continue;
+            }
+            // Type buckets
+            $type   = $g['type'] ?? null;
+            $bucket = $this->categorizeGigType(is_string($type) ? $type : null);
+            $typeCounts[$bucket]++;
+
+            // Booleans / counts
+            if (!empty($g['is_fiverr_choice'])) {
+                $cnt_is_fiverr_choice++;
+            }
+            if (!empty($g['is_pro'])) {
+                $cnt_is_pro++;
+            }
+            if (!empty($g['is_featured'])) {
+                $cnt_is_featured++;
+            }
+            if (!empty($g['seller_online'])) {
+                $cnt_seller_online++;
+            }
+            if (!empty($g['offer_consultation'])) {
+                $cnt_offer_consultation++;
+            }
+            if (!empty($g['personalized_pricing_fail'])) {
+                $cnt_personalized_pricing_fail++;
+            }
+            if (!empty($g['has_recurring_option'])) {
+                $cnt_has_recurring_option++;
+            }
+            if (!empty($g['is_seller_unavailable'])) {
+                $cnt_is_seller_unavailable++;
+            }
+            if (!empty($g['extra_fast'])) {
+                $cnt_extra_fast++;
+            }
+
+            // Packages recommended
+            $rec = $g['packages']['recommended'] ?? null;
+            if (is_array($rec)) {
+                if (!empty($rec['extra_fast'])) {
+                    $cnt_packages_rec_extra_fast++;
+                }
+                $addNum($nums_rec_price, $rec['price'] ?? null);
+                $addNum($nums_rec_duration, $rec['duration'] ?? null);
+                $addNum($nums_rec_price_tier, $rec['price_tier'] ?? null);
+            }
+
+            // Averages
+            $addNum($nums_buy_rev_cnt, $g['buying_review_rating_count'] ?? null);
+            $addNum($nums_buy_rev, $g['buying_review_rating'] ?? null);
+            if (isset($g['seller_rating']) && is_array($g['seller_rating'])) {
+                $addNum($nums_seller_cnt, $g['seller_rating']['count'] ?? null);
+                $addNum($nums_seller_score, $g['seller_rating']['score'] ?? null);
+            }
+            $addNum($nums_price_i, $g['price_i'] ?? null);
+            $addNum($nums_package_i, $g['package_i'] ?? null);
+            $addNum($nums_num_packages, $g['num_of_packages'] ?? null);
+
+            // Seller level item
+            $sellerLevelItems[] = ['seller_level' => (string) ($g['seller_level'] ?? 'na')];
+        }
+
+        // Map type counts
+        $out['cnt___listings__gigs__type___promoted_gigs'] = $typeCounts['promoted_gigs'];
+        $out['cnt___listings__gigs__type___fiverr_choice'] = $typeCounts['fiverr_choice'];
+        $out['cnt___listings__gigs__type___fixed_pricing'] = $typeCounts['fixed_pricing'];
+        $out['cnt___listings__gigs__type___pro']           = $typeCounts['pro'];
+        $out['cnt___listings__gigs__type___missing']       = $typeCounts['missing'];
+        $out['cnt___listings__gigs__type___other']         = $typeCounts['other'];
+
+        // Other counts
+        $out['cnt___listings__gigs__is_fiverr_choice']                  = $cnt_is_fiverr_choice;
+        $out['cnt___listings__gigs__packages__recommended__extra_fast'] = $cnt_packages_rec_extra_fast;
+        $out['cnt___listings__gigs__is_pro']                            = $cnt_is_pro;
+        $out['cnt___listings__gigs__is_featured']                       = $cnt_is_featured;
+        $out['cnt___listings__gigs__seller_online']                     = $cnt_seller_online;
+        $out['cnt___listings__gigs__offer_consultation']                = $cnt_offer_consultation;
+        $out['cnt___listings__gigs__personalized_pricing_fail']         = $cnt_personalized_pricing_fail;
+        $out['cnt___listings__gigs__has_recurring_option']              = $cnt_has_recurring_option;
+        $out['cnt___listings__gigs__is_seller_unavailable']             = $cnt_is_seller_unavailable;
+        $out['cnt___listings__gigs__extra_fast']                        = $cnt_extra_fast;
+
+        // Averages from gigs
+        $out['avg___listings__gigs__packages__recommended__price']      = $avg($nums_rec_price);
+        $out['avg___listings__gigs__packages__recommended__duration']   = $avg($nums_rec_duration);
+        $out['avg___listings__gigs__packages__recommended__price_tier'] = $avg($nums_rec_price_tier);
+        $out['avg___listings__gigs__buying_review_rating_count']        = $avg($nums_buy_rev_cnt);
+        $out['avg___listings__gigs__buying_review_rating']              = $avg($nums_buy_rev);
+        $out['avg___listings__gigs__seller_rating__count']              = $avg($nums_seller_cnt);
+        $out['avg___listings__gigs__seller_rating__score']              = $avg($nums_seller_score);
+        $out['avg___listings__gigs__price_i']                           = $avg($nums_price_i);
+        $out['avg___listings__gigs__package_i']                         = $avg($nums_package_i);
+        $out['avg___listings__gigs__num_of_packages']                   = $avg($nums_num_packages);
+
+        // Seller level stats from gigs
+        $lvlStats                                                     = $this->calculateSellerLevelStats($sellerLevelItems, 'seller_level');
+        $out['cnt___listings__gigs__seller_level___na']               = $lvlStats['na'];
+        $out['cnt___listings__gigs__seller_level___level_one_seller'] = $lvlStats['level_one'];
+        $out['cnt___listings__gigs__seller_level___level_two_seller'] = $lvlStats['level_two'];
+        $out['cnt___listings__gigs__seller_level___top_rated_seller'] = $lvlStats['top_rated'];
+        $out['avg___listings__gigs__seller_level']                    = $lvlStats['weighted_avg'];
+
+        // Facets
+        $decodeJsonArray = static function ($text) {
+            if (is_string($text) && $text !== '') {
+                $arr = json_decode($text, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
+                    return $arr;
+                }
+            }
+
+            return [];
+        };
+
+        $fac_has_hourly       = $decodeJsonArray($listingsRow['facets__has_hourly'] ?? null);
+        $fac_is_agency        = $decodeJsonArray($listingsRow['facets__is_agency'] ?? null);
+        $fac_is_pa_online     = $decodeJsonArray($listingsRow['facets__is_pa_online'] ?? null);
+        $fac_is_seller_online = $decodeJsonArray($listingsRow['facets__is_seller_online'] ?? null);
+        $fac_pro              = $decodeJsonArray($listingsRow['facets__pro'] ?? null);
+        $fac_seller_language  = $decodeJsonArray($listingsRow['facets__seller_language'] ?? null);
+        $fac_seller_level     = $decodeJsonArray($listingsRow['facets__seller_level'] ?? null);
+        $fac_seller_location  = $decodeJsonArray($listingsRow['facets__seller_location'] ?? null);
+        $fac_service_offering = $decodeJsonArray($listingsRow['facets__service_offerings'] ?? null);
+
+        $out['facets__has_hourly___true___count']       = $this->extractFacetCount($fac_has_hourly, 'true');
+        $out['facets__is_agency___true___count']        = $this->extractFacetCount($fac_is_agency, 'true');
+        $out['facets__is_pa_online___true___count']     = $this->extractFacetCount($fac_is_pa_online, 'true');
+        $out['facets__is_seller_online___true___count'] = $this->extractFacetCount($fac_is_seller_online, 'true');
+        $out['facets__pro___true___count']              = $this->extractFacetCount($fac_pro, 'true');
+        $out['facets__seller_language___en___count']    = $this->extractFacetCount($fac_seller_language, 'en');
+
+        $fac_lvl_na  = $this->extractFacetCount($fac_seller_level, 'na') ?? 0;
+        $fac_lvl_one = $this->extractFacetCount($fac_seller_level, 'level_one_seller') ?? 0;
+        $fac_lvl_two = $this->extractFacetCount($fac_seller_level, 'level_two_seller') ?? 0;
+        $fac_lvl_top = $this->extractFacetCount($fac_seller_level, 'top_rated_seller') ?? 0;
+        $fac_lvl_sum = $fac_lvl_na + $fac_lvl_one + $fac_lvl_two + $fac_lvl_top;
+
+        $out['facets__seller_level___na___count']               = $fac_lvl_na;
+        $out['facets__seller_level___level_one_seller___count'] = $fac_lvl_one;
+        $out['facets__seller_level___level_two_seller___count'] = $fac_lvl_two;
+        $out['facets__seller_level___top_rated_seller___count'] = $fac_lvl_top;
+        $out['avg___facets___seller_level']                     = $fac_lvl_sum > 0
+            ? (0 * $fac_lvl_na + 1 * $fac_lvl_one + 2 * $fac_lvl_two + 3 * $fac_lvl_top) / $fac_lvl_sum
+            : null;
+
+        $out['facets__seller_location___us___count'] = $this->extractFacetCount($fac_seller_location, 'US');
+
+        $out['facets__service_offerings__offer_consultation___count'] = $this->extractFacetCount($fac_service_offering, 'offer_consultation');
+        $out['facets__service_offerings__subscription___count']       = $this->extractFacetCount($fac_service_offering, 'subscription');
+
+        // Price buckets
+        $priceBuckets                          = $decodeJsonArray($listingsRow['priceBucketsSkeleton'] ?? null);
+        $out['priceBucketsSkeleton___0___max'] = isset($priceBuckets[0]['max']) && is_numeric($priceBuckets[0]['max']) ? (int) $priceBuckets[0]['max'] : null;
+        $out['priceBucketsSkeleton___1___max'] = isset($priceBuckets[1]['max']) && is_numeric($priceBuckets[1]['max']) ? (int) $priceBuckets[1]['max'] : null;
+        $out['priceBucketsSkeleton___2___max'] = isset($priceBuckets[2]['max']) && is_numeric($priceBuckets[2]['max']) ? (int) $priceBuckets[2]['max'] : null;
+
+        return $out;
     }
 }

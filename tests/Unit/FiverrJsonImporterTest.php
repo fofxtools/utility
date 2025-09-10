@@ -9,6 +9,7 @@ use FOfX\Utility\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class FiverrJsonImporterTest extends TestCase
 {
@@ -42,11 +43,13 @@ class FiverrJsonImporterTest extends TestCase
         $importer->setFiverrGigsTable('x_gigs');
         $importer->setFiverrSellerProfilesTable('x_sellers');
         $importer->setFiverrListingsGigsTable('x_listings_gigs');
+        $importer->setFiverrListingsStatsTable('x_stats');
 
         $this->assertSame('x_listings', $importer->getFiverrListingsTable());
         $this->assertSame('x_gigs', $importer->getFiverrGigsTable());
         $this->assertSame('x_sellers', $importer->getFiverrSellerProfilesTable());
         $this->assertSame('x_listings_gigs', $importer->getFiverrListingsGigsTable());
+        $this->assertSame('x_stats', $importer->getFiverrListingsStatsTable());
     }
 
     public function test_migration_path_accessors(): void
@@ -57,11 +60,13 @@ class FiverrJsonImporterTest extends TestCase
         $importer->setFiverrGigsMigrationPath('/tmp/b.php');
         $importer->setFiverrSellerProfilesMigrationPath('/tmp/c.php');
         $importer->setFiverrListingsGigsMigrationPath('/tmp/d.php');
+        $importer->setFiverrListingsStatsMigrationPath('/tmp/e.php');
 
         $this->assertSame('/tmp/a.php', $importer->getFiverrListingsMigrationPath());
         $this->assertSame('/tmp/b.php', $importer->getFiverrGigsMigrationPath());
         $this->assertSame('/tmp/c.php', $importer->getFiverrSellerProfilesMigrationPath());
         $this->assertSame('/tmp/d.php', $importer->getFiverrListingsGigsMigrationPath());
+        $this->assertSame('/tmp/e.php', $importer->getFiverrListingsStatsMigrationPath());
     }
 
     public function test_loadJsonFile_success(): void
@@ -597,5 +602,357 @@ class FiverrJsonImporterTest extends TestCase
 
         // Only one row for the duplicate gigId due to unique+insertOrIgnore
         $this->assertSame(1, DB::table($importer->getFiverrListingsGigsTable())->where('gigId', 9901)->count());
+    }
+
+    public static function provider_getSellerLevelNumeric(): array
+    {
+        return [
+            ['na', 0],
+            ['level_one_seller', 1],
+            ['level_two_seller', 2],
+            ['top_rated_seller', 3],
+            ['UNKNOWN', 0],
+        ];
+    }
+
+    #[DataProvider('provider_getSellerLevelNumeric')]
+    public function test_getSellerLevelNumeric(string $input, int $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->assertSame($expected, $importer->getSellerLevelNumeric($input));
+    }
+
+    public static function provider_calculateSellerLevelStats(): array
+    {
+        return [
+            'mixed-levels' => [
+                [
+                    ['seller_level' => 'na'],
+                    ['seller_level' => 'level_one_seller'],
+                    ['seller_level' => 'level_two_seller'],
+                    ['seller_level' => 'top_rated_seller'],
+                    ['seller_level' => 'level_two_seller'],
+                    ['seller_level' => 'unknown'],
+                ],
+                ['na' => 2, 'level_one' => 1, 'level_two' => 2, 'top_rated' => 1, 'avg' => 8 / 6],
+            ],
+            'empty' => [
+                [],
+                ['na' => 0, 'level_one' => 0, 'level_two' => 0, 'top_rated' => 0, 'avg' => null],
+            ],
+        ];
+    }
+
+    #[DataProvider('provider_calculateSellerLevelStats')]
+    public function test_calculateSellerLevelStats(array $items, array $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $stats    = $importer->calculateSellerLevelStats($items);
+
+        $this->assertSame($expected['na'], $stats['na']);
+        $this->assertSame($expected['level_one'], $stats['level_one']);
+        $this->assertSame($expected['level_two'], $stats['level_two']);
+        $this->assertSame($expected['top_rated'], $stats['top_rated']);
+
+        if ($expected['avg'] === null) {
+            $this->assertNull($stats['weighted_avg']);
+        } else {
+            $this->assertEqualsWithDelta($expected['avg'], $stats['weighted_avg'] ?? -1, 1e-9);
+        }
+    }
+
+    public static function provider_extractFacetCount(): array
+    {
+        $facets = [
+            ['id' => 'true', 'count' => 10],
+            ['id' => 'false', 'count' => 5],
+            ['id' => 'maybe'],
+            ['id' => 'numstr', 'count' => '7'],
+        ];
+
+        return [
+            'present-int'    => [$facets, 'true', 10],
+            'present-int2'   => [$facets, 'false', 5],
+            'present-nonint' => [$facets, 'maybe', 0],
+            'present-numstr' => [$facets, 'numstr', 7],
+            'missing'        => [$facets, 'missing', null],
+        ];
+    }
+
+    #[DataProvider('provider_extractFacetCount')]
+    public function test_extractFacetCount(array $facets, string $id, ?int $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->assertSame($expected, $importer->extractFacetCount($facets, $id));
+    }
+
+    public static function provider_categorizeGigType(): array
+    {
+        return [
+            [null, 'missing'],
+            ['', 'missing'],
+            ['promoted_gigs', 'promoted_gigs'],
+            ['FIVERR_CHOICE', 'fiverr_choice'],
+            ['fixed_pricing', 'fixed_pricing'],
+            ['pro', 'pro'],
+            ['something_else', 'other'],
+        ];
+    }
+
+    #[DataProvider('provider_categorizeGigType')]
+    public function test_categorizeGigType(?string $input, string $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->assertSame($expected, $importer->categorizeGigType($input));
+    }
+
+    public function test_computeListingsStatsRow_handles_missing_index_zero_safely(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Set up a listings row with listings JSON as an array without index 0
+        $row = [
+            'id'       => 123,
+            'listings' => json_encode([1 => ['gigs' => [['type' => 'promoted_gigs']]]]),
+        ];
+
+        $stats = $importer->computeListingsStatsRow($row);
+
+        // Should not error and should produce defaults (no gigs processed)
+        $this->assertSame(123, $stats['fiverr_listings_row_id']);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___promoted_gigs'] ?? 0);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___fiverr_choice'] ?? 0);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___fixed_pricing'] ?? 0);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___pro'] ?? 0);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___missing'] ?? 0);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___other'] ?? 0);
+    }
+
+    public function test_computeListingsStatsRow_basic_aggregation_from_gigs(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $gigs = [
+            ['type' => 'promoted_gigs', 'seller_level' => 'level_two_seller', 'buying_review_rating' => 4.5],
+            ['type' => 'fixed_pricing', 'seller_level' => 'level_one_seller', 'buying_review_rating' => 5],
+            ['type' => '', 'seller_level' => 'top_rated_seller'],
+        ];
+        $row = [
+            'id'       => 456,
+            'listings' => json_encode([['gigs' => $gigs]]),
+        ];
+
+        $stats = $importer->computeListingsStatsRow($row);
+
+        // Type counts
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___promoted_gigs']);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___fiverr_choice']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___fixed_pricing']);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___pro']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___missing']);
+        $this->assertSame(0, $stats['cnt___listings__gigs__type___other']);
+
+        // Seller level counts
+        $this->assertSame(0, $stats['cnt___listings__gigs__seller_level___na']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__seller_level___level_one_seller']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__seller_level___level_two_seller']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__seller_level___top_rated_seller']);
+
+        // Weighted average seller level: (2 + 1 + 3) / 3 = 2.0
+        $this->assertEqualsWithDelta(2.0, $stats['avg___listings__gigs__seller_level'] ?? -1, 1e-9);
+
+        // Average of buying_review_rating: (4.5 + 5) / 2 = 4.75
+        $this->assertEqualsWithDelta(4.75, $stats['avg___listings__gigs__buying_review_rating'] ?? -1, 1e-9);
+    }
+
+    public function test_computeListingsStatsRow_facets_priceBuckets_and_copyThrough(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Build facets arrays
+        $fac_seller_level = json_encode([
+            ['id' => 'na', 'count' => 4],
+            ['id' => 'level_one_seller', 'count' => 3],
+            ['id' => 'level_two_seller', 'count' => 2],
+            ['id' => 'top_rated_seller', 'count' => 1],
+        ]);
+        $fac_is_agency = json_encode([
+            ['id' => 'true', 'count' => 11],
+        ]);
+        $fac_seller_language = json_encode([
+            ['id' => 'en', 'count' => 7],
+        ]);
+        $fac_seller_location = json_encode([
+            ['id' => 'US', 'count' => 5],
+        ]);
+        $fac_service_offerings = json_encode([
+            ['id' => 'offer_consultation', 'count' => 9],
+            ['id' => 'subscription', 'count' => 6],
+        ]);
+
+        $row = [
+            'id' => 789,
+            // Copy-through fields
+            'listingAttributes__id'            => 'ATTR-123',
+            'currency__rate'                   => 1.23,
+            'rawListingData__has_more'         => true,
+            'countryCode'                      => 'GB',
+            'assumedLanguage'                  => 'en',
+            'v2__report__search_total_results' => 321,
+            'appData__pagination__page'        => 2,
+            'appData__pagination__page_size'   => 50,
+            'appData__pagination__total'       => 400,
+            // Tracking copy-through fields
+            'tracking__isNonExperiential'                   => false,
+            'tracking__fiverrChoiceGigPosition'             => 7,
+            'tracking__hasFiverrChoiceGigs'                 => true,
+            'tracking__hasPromotedGigs'                     => true,
+            'tracking__promotedGigsCount'                   => 3,
+            'tracking__searchAutoComplete__is_autocomplete' => false,
+            // Facets and price buckets
+            'facets__seller_level'      => $fac_seller_level,
+            'facets__is_agency'         => $fac_is_agency,
+            'facets__seller_language'   => $fac_seller_language,
+            'facets__seller_location'   => $fac_seller_location,
+            'facets__service_offerings' => $fac_service_offerings,
+            'priceBucketsSkeleton'      => json_encode([
+                ['max' => 100], ['max' => 2000], ['max' => 30000],
+            ]),
+        ];
+
+        $stats = $importer->computeListingsStatsRow($row);
+
+        // Copy-through checks
+        $this->assertSame('GB', $stats['countryCode']);
+        $this->assertTrue($stats['tracking__hasPromotedGigs']);
+
+        // Facet counts
+        $this->assertSame(11, $stats['facets__is_agency___true___count']);
+
+        // Additional copy-through checks
+        $this->assertSame('ATTR-123', $stats['listingAttributes__id']);
+        $this->assertEqualsWithDelta(1.23, (float)$stats['currency__rate'], 1e-9);
+        $this->assertTrue($stats['rawListingData__has_more']);
+        $this->assertSame('en', $stats['assumedLanguage']);
+        $this->assertSame(321, $stats['v2__report__search_total_results']);
+        $this->assertSame(2, $stats['appData__pagination__page']);
+        $this->assertSame(50, $stats['appData__pagination__page_size']);
+        $this->assertSame(400, $stats['appData__pagination__total']);
+
+        // Additional tracking checks
+        $this->assertFalse($stats['tracking__isNonExperiential']);
+        $this->assertSame(7, $stats['tracking__fiverrChoiceGigPosition']);
+        $this->assertTrue($stats['tracking__hasFiverrChoiceGigs']);
+        $this->assertTrue($stats['tracking__hasPromotedGigs']);
+        $this->assertSame(3, $stats['tracking__promotedGigsCount']);
+        $this->assertFalse($stats['tracking__searchAutoComplete__is_autocomplete']);
+
+        // Additional facet true counts
+        $fac_has_hourly       = json_encode([['id' => 'true', 'count' => 8]]);
+        $fac_is_pa_online     = json_encode([['id' => 'true', 'count' => 6]]);
+        $fac_is_seller_online = json_encode([['id' => 'true', 'count' => 4]]);
+        $fac_pro              = json_encode([['id' => 'true', 'count' => 2]]);
+
+        $row2                             = $row;
+        $row2['facets__has_hourly']       = $fac_has_hourly;
+        $row2['facets__is_pa_online']     = $fac_is_pa_online;
+        $row2['facets__is_seller_online'] = $fac_is_seller_online;
+        $row2['facets__pro']              = $fac_pro;
+
+        $stats2 = $importer->computeListingsStatsRow($row2);
+        $this->assertSame(8, $stats2['facets__has_hourly___true___count']);
+        $this->assertSame(6, $stats2['facets__is_pa_online___true___count']);
+        $this->assertSame(4, $stats2['facets__is_seller_online___true___count']);
+        $this->assertSame(2, $stats2['facets__pro___true___count']);
+
+        $this->assertSame(7, $stats['facets__seller_language___en___count']);
+        $this->assertSame(5, $stats['facets__seller_location___us___count']);
+        $this->assertSame(9, $stats['facets__service_offerings__offer_consultation___count']);
+        $this->assertSame(6, $stats['facets__service_offerings__subscription___count']);
+
+        // Price buckets (already above) and countryCode were checked; also check listing row id copy
+        $this->assertSame(789, $stats['fiverr_listings_row_id']);
+
+        // Facet seller levels and weighted average
+        $this->assertSame(4, $stats['facets__seller_level___na___count']);
+        $this->assertSame(3, $stats['facets__seller_level___level_one_seller___count']);
+        $this->assertSame(2, $stats['facets__seller_level___level_two_seller___count']);
+        $this->assertSame(1, $stats['facets__seller_level___top_rated_seller___count']);
+        $this->assertEqualsWithDelta(1.0, $stats['avg___facets___seller_level'] ?? -1, 1e-9);
+
+        // Price buckets
+        $this->assertSame(100, $stats['priceBucketsSkeleton___0___max']);
+        $this->assertSame(2000, $stats['priceBucketsSkeleton___1___max']);
+        $this->assertSame(30000, $stats['priceBucketsSkeleton___2___max']);
+    }
+
+    public function test_computeListingsStatsRow_all_type_buckets_booleans_and_null_average(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $gigs = [
+            ['type' => 'promoted_gigs', 'is_featured' => true],
+            ['type'     => 'fiverr_choice', 'extra_fast' => true],
+            ['type'     => 'fixed_pricing'],
+            ['type'     => 'pro'],
+            ['type'     => 'weird_type'], // other
+            ['type'     => ''], // missing
+            ['packages' => ['recommended' => ['extra_fast' => true, 'price' => 10]]],
+            ['type'     => 'promoted_gigs', 'is_fiverr_choice' => true],
+            ['type'     => 'pro', 'is_pro' => true],
+            ['type'     => 'pro', 'seller_online' => true],
+            ['type'     => 'pro', 'offer_consultation' => true],
+            ['type'     => 'pro', 'personalized_pricing_fail' => true],
+            ['type'     => 'pro', 'has_recurring_option' => true],
+            ['type'     => 'pro', 'is_seller_unavailable' => true],
+            ['type'     => 'pro', 'seller_rating' => ['count' => 2]],
+            ['type'     => 'pro', 'price_i' => 1, 'package_i' => 3, 'num_of_packages' => 5],
+            ['type'     => 'pro', 'buying_review_rating_count' => 4],
+            ['type'     => 'pro', 'packages' => ['recommended' => ['duration' => 2, 'price_tier' => 1]]],
+        ];
+
+        $row = [
+            'id'       => 901,
+            'listings' => json_encode([['gigs' => $gigs]]),
+        ];
+
+        $stats = $importer->computeListingsStatsRow($row);
+
+        // All type buckets
+        $this->assertSame(2, $stats['cnt___listings__gigs__type___promoted_gigs']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___fiverr_choice']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___fixed_pricing']);
+        $this->assertSame(11, $stats['cnt___listings__gigs__type___pro']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__type___other']);
+        $this->assertSame(2, $stats['cnt___listings__gigs__type___missing']);
+
+        // Boolean counts
+        $this->assertSame(1, $stats['cnt___listings__gigs__is_featured']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__extra_fast']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__packages__recommended__extra_fast']);
+
+        // Additional boolean counts we set above
+        $this->assertSame(1, $stats['cnt___listings__gigs__is_fiverr_choice']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__is_pro']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__seller_online']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__offer_consultation']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__personalized_pricing_fail']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__has_recurring_option']);
+        $this->assertSame(1, $stats['cnt___listings__gigs__is_seller_unavailable']);
+
+        // Remaining averages
+        $this->assertEqualsWithDelta(2.0, $stats['avg___listings__gigs__packages__recommended__duration'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(1.0, $stats['avg___listings__gigs__packages__recommended__price_tier'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(4.0, $stats['avg___listings__gigs__buying_review_rating_count'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(2.0, $stats['avg___listings__gigs__seller_rating__count'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(1.0, $stats['avg___listings__gigs__price_i'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(3.0, $stats['avg___listings__gigs__package_i'] ?? -1, 1e-9);
+        $this->assertEqualsWithDelta(5.0, $stats['avg___listings__gigs__num_of_packages'] ?? -1, 1e-9);
+
+        // One recommended average present (price)
+        $this->assertEqualsWithDelta(10.0, $stats['avg___listings__gigs__packages__recommended__price'] ?? -1, 1e-9);
+
+        // Example of null average when no numeric values provided (seller_rating__score)
+        $this->assertNull($stats['avg___listings__gigs__seller_rating__score']);
     }
 }

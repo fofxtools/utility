@@ -21,7 +21,7 @@ return new class () extends Migration {
 
             // Currency
             $table->string('currency__name')->nullable();
-            $table->integer('currency__rate')->nullable();
+            $table->float('currency__rate')->nullable();
             $table->string('currency__symbol')->nullable();
 
             // Listing attributes
@@ -97,6 +97,8 @@ return new class () extends Migration {
             // Custom processing fields
             $table->timestamp('processed_at')->nullable();
             $table->text('processed_status')->nullable();
+            $table->timestamp('stats_processed_at')->nullable();
+            $table->text('stats_processed_status')->nullable();
 
             // Unique index on listingAttributes__id
             $table->unique('listingAttributes__id');
@@ -107,6 +109,7 @@ return new class () extends Migration {
             $table->index('tracking__hasPromotedGigs');
             $table->index('tracking__promotedGigsCount');
             $table->index('processed_at');
+            $table->index('stats_processed_at');
         });
     }
 

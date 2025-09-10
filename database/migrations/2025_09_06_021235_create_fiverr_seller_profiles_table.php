@@ -66,7 +66,7 @@ return new class () extends Migration {
 
             // Currency fields
             $table->string('currency__name')->nullable();
-            $table->integer('currency__rate')->nullable();
+            $table->float('currency__rate')->nullable();
             $table->string('currency__template')->nullable();
             $table->boolean('currency__forceRound')->nullable();
             $table->integer('currency__forceRoundFromAmount')->nullable();
