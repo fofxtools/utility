@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 
+use function FOfX\Utility\ensure_table_exists;
+
 class FiverrJsonImporterTest extends TestCase
 {
     use RefreshDatabase;
@@ -954,5 +956,201 @@ class FiverrJsonImporterTest extends TestCase
 
         // Example of null average when no numeric values provided (seller_rating__score)
         $this->assertNull($stats['avg___listings__gigs__seller_rating__score']);
+    }
+
+    public function test_processListingsStatsBatch_processes_at_most_batch_size_and_marks_stats_processed(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Helper to create and import a minimal listings JSON payload
+        $makePayload = function (string $id): array {
+            return [
+                'listingAttributes' => ['id' => $id],
+                'currency'          => ['rate' => 1],
+                'rawListingData'    => ['has_more' => true],
+                'countryCode'       => 'US',
+                'assumedLanguage'   => 'en',
+                'v2'                => ['report' => ['search_total_results' => 1]],
+                'appData'           => ['pagination' => ['page' => 1, 'page_size' => 48, 'total' => 1]],
+                'listings'          => [['gigs' => []]],
+                'facets'            => [
+                    'is_agency'         => [['id' => 'true', 'count' => 1]],
+                    'seller_language'   => [['id' => 'en', 'count' => 1]],
+                    'seller_level'      => [['id' => 'na', 'count' => 1]],
+                    'seller_location'   => [['id' => 'US', 'count' => 1]],
+                    'service_offerings' => [['id' => 'offer_consultation', 'count' => 1]],
+                ],
+                'priceBucketsSkeleton' => [['max' => 100], ['max' => 200], ['max' => 300]],
+                'tracking'             => [
+                    'isNonExperiential'       => false,
+                    'fiverrChoiceGigPosition' => 0,
+                    'hasFiverrChoiceGigs'     => false,
+                    'hasPromotedGigs'         => false,
+                    'promotedGigsCount'       => 0,
+                    'searchAutoComplete'      => ['is_autocomplete' => false],
+                ],
+            ];
+        };
+
+        // Seed three listings
+        foreach (['S1', 'S2', 'S3'] as $id) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+
+            try {
+                file_put_contents($json, json_encode($makePayload($id)));
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        // Process first batch of size 2
+        $stats1 = $importer->processListingsStatsBatch(2);
+        $this->assertSame(2, $stats1['rows_processed']);
+        $this->assertSame(2, DB::table($importer->getFiverrListingsStatsTable())->count());
+        $this->assertSame(1, DB::table($importer->getFiverrListingsTable())->whereNull('stats_processed_at')->count());
+
+        // Verify one computed stats row content (S1)
+        $listingS1 = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'S1')->first();
+        $this->assertNotNull($listingS1);
+        $statsS1 = DB::table($importer->getFiverrListingsStatsTable())->where('fiverr_listings_row_id', $listingS1->id)->first();
+        $this->assertNotNull($statsS1);
+        $this->assertSame('S1', $statsS1->listingAttributes__id);
+        $this->assertEqualsWithDelta(1.0, (float) $statsS1->currency__rate, 1e-9);
+        $this->assertSame(1, $statsS1->rawListingData__has_more);
+        $this->assertSame('US', $statsS1->countryCode);
+        $this->assertSame('en', $statsS1->assumedLanguage);
+        $this->assertSame(1, $statsS1->v2__report__search_total_results);
+        $this->assertSame(1, $statsS1->appData__pagination__page);
+        $this->assertSame(48, $statsS1->appData__pagination__page_size);
+        $this->assertSame(1, $statsS1->appData__pagination__total);
+        // Facets & buckets
+        $this->assertSame(1, $statsS1->facets__is_agency___true___count);
+        $this->assertSame(1, $statsS1->facets__seller_language___en___count);
+        $this->assertSame(1, $statsS1->facets__seller_level___na___count);
+        $this->assertEqualsWithDelta(0.0, (float) $statsS1->avg___facets___seller_level, 1e-9);
+        $this->assertSame(1, $statsS1->facets__seller_location___us___count);
+        $this->assertSame(1, $statsS1->facets__service_offerings__offer_consultation___count);
+        $this->assertSame(100, $statsS1->priceBucketsSkeleton___0___max);
+        $this->assertSame(200, $statsS1->priceBucketsSkeleton___1___max);
+        $this->assertSame(300, $statsS1->priceBucketsSkeleton___2___max);
+        // Tracking copy-through
+        $this->assertSame(0, $statsS1->tracking__isNonExperiential);
+        $this->assertSame(0, $statsS1->tracking__fiverrChoiceGigPosition);
+        $this->assertSame(0, $statsS1->tracking__hasFiverrChoiceGigs);
+        $this->assertSame(0, $statsS1->tracking__hasPromotedGigs);
+        $this->assertSame(0, $statsS1->tracking__promotedGigsCount);
+        $this->assertSame(0, $statsS1->tracking__searchAutoComplete__is_autocomplete);
+
+        // Verify stats_processed_status content
+        $status = DB::table($importer->getFiverrListingsTable())->where('id', $listingS1->id)->value('stats_processed_status');
+        $this->assertNotNull($status);
+        $decoded = json_decode((string) $status, true);
+        $this->assertIsArray($decoded);
+        $this->assertSame($listingS1->id, $decoded['row_id']);
+        $this->assertSame(1, $decoded['inserted']);
+        $this->assertSame(0, $decoded['skipped']);
+
+        // Process second batch (remaining 1)
+        $stats2 = $importer->processListingsStatsBatch(5);
+        $this->assertSame(1, $stats2['rows_processed']);
+        $this->assertSame(3, DB::table($importer->getFiverrListingsStatsTable())->count());
+        $this->assertSame(0, DB::table($importer->getFiverrListingsTable())->whereNull('stats_processed_at')->count());
+    }
+
+    public function test_processListingsStatsBatch_no_unprocessed_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $stats    = $importer->processListingsStatsBatch(10);
+        $this->assertSame(['rows_processed' => 0, 'inserted' => 0, 'skipped' => 0], $stats);
+    }
+
+    public function test_processListingsStatsBatch_handles_duplicate_stats_row_gracefully(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed one listing
+        $payload = [
+            'listingAttributes' => ['id' => 'DUP1'],
+            'listings'          => [['gigs' => []]],
+        ];
+        $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+
+        try {
+            file_put_contents($json, json_encode($payload));
+            $importer->importListingsJson($json);
+        } finally {
+            unlink($json);
+        }
+
+        $listing = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'DUP1')->first();
+        $this->assertNotNull($listing);
+
+        // Ensure stats table exists and insert a pre-existing stats row for this listing
+        ensure_table_exists($importer->getFiverrListingsStatsTable(), $importer->getFiverrListingsStatsMigrationPath());
+
+        DB::table($importer->getFiverrListingsStatsTable())->insert([
+            'fiverr_listings_row_id' => $listing->id,
+            'created_at'             => now(),
+            'updated_at'             => now(),
+        ]);
+
+        $this->assertSame(1, DB::table($importer->getFiverrListingsStatsTable())->where('fiverr_listings_row_id', $listing->id)->count());
+
+        // Now run the batch; insert should be ignored due to unique constraint, but listing should still be marked processed
+        $res = $importer->processListingsStatsBatch(5);
+
+        $this->assertSame(1, $res['rows_processed']);
+        $this->assertSame(0, $res['inserted']);
+        $this->assertSame(1, $res['skipped']);
+
+        // Verify processed markers
+        $updated = DB::table($importer->getFiverrListingsTable())->where('id', $listing->id)->first();
+
+        $this->assertNotNull($updated->stats_processed_at);
+        $this->assertNotNull($updated->stats_processed_status);
+
+        $status = json_decode((string) $updated->stats_processed_status, true);
+
+        $this->assertSame($listing->id, $status['row_id']);
+        $this->assertSame(0, $status['inserted']);
+        $this->assertSame(1, $status['skipped']);
+
+        // Still only 1 stats row
+        $this->assertSame(1, DB::table($importer->getFiverrListingsStatsTable())->where('fiverr_listings_row_id', $listing->id)->count());
+    }
+
+    public function test_processListingsStatsAll_inserts_stats_and_marks_processed_across_batches(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed 3 listings to exercise multiple batches
+        foreach (['A1', 'A2', 'A3'] as $id) {
+            $payload = [
+                'listingAttributes' => ['id' => $id],
+                'listings'          => [['gigs' => []]],
+            ];
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+
+            try {
+                file_put_contents($json, json_encode($payload));
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $res = $importer->processListingsStatsAll(1); // force multiple iterations
+        $this->assertSame(3, $res['rows_processed']);
+        $this->assertSame(3, $res['inserted']);
+
+        $this->assertSame(0, DB::table($importer->getFiverrListingsTable())->whereNull('stats_processed_at')->count());
+        $this->assertSame(3, DB::table($importer->getFiverrListingsStatsTable())->count());
+
+        // Re-running should do nothing
+        $res2 = $importer->processListingsStatsAll(1);
+        $this->assertSame(0, $res2['rows_processed']);
+        $this->assertSame(0, $res2['inserted']);
+        $this->assertSame(0, $res2['skipped']);
     }
 }

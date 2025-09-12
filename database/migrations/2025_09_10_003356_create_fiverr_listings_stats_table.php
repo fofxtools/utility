@@ -51,13 +51,6 @@ return new class () extends Migration {
             $table->integer('cnt___listings__gigs__has_recurring_option')->nullable();
             $table->float('avg___listings__gigs__buying_review_rating_count')->nullable();
             $table->float('avg___listings__gigs__buying_review_rating')->nullable();
-            $table->float('avg___listings__gigs__seller_rating__count')->nullable();
-            $table->float('avg___listings__gigs__seller_rating__score')->nullable();
-            $table->integer('cnt___listings__gigs__is_seller_unavailable')->nullable();
-            $table->float('avg___listings__gigs__price_i')->nullable();
-            $table->float('avg___listings__gigs__package_i')->nullable();
-            $table->integer('cnt___listings__gigs__extra_fast')->nullable();
-            $table->float('avg___listings__gigs__num_of_packages')->nullable();
 
             // Process string listings.gigs.seller_level and count each level
             // Note: Not the same as facets.seller_level. That applies to all listings pages.
@@ -69,6 +62,15 @@ return new class () extends Migration {
 
             // Weighted average of the seller levels (first convert to 0, 1, 2, 3)
             $table->float('avg___listings__gigs__seller_level')->nullable();
+
+            // Remaining listings fields
+            $table->float('avg___listings__gigs__seller_rating__count')->nullable();
+            $table->float('avg___listings__gigs__seller_rating__score')->nullable();
+            $table->integer('cnt___listings__gigs__is_seller_unavailable')->nullable();
+            $table->float('avg___listings__gigs__price_i')->nullable();
+            $table->float('avg___listings__gigs__package_i')->nullable();
+            $table->integer('cnt___listings__gigs__extra_fast')->nullable();
+            $table->float('avg___listings__gigs__num_of_packages')->nullable();
 
             // JSON path: $[?(@.id=='true')].count
             $table->integer('facets__has_hourly___true___count')->nullable();

@@ -572,22 +572,21 @@ class FiverrJsonImporter
     /**
      * Calculate counts and weighted average of seller levels.
      *
-     * Each item's $field is mapped via getSellerLevelNumeric() and contributes 1 weight
-     * to the average. Returns bucket counts and the weighted average.
+     * Reads the 'seller_level' string from each item, maps it via getSellerLevelNumeric(),
+     * and averages with equal weight per item. Returns bucket counts and the weighted average.
      *
-     * @param array<int,array<string,mixed>> $items List of items (e.g., gigs or facet buckets)
-     * @param string                         $field Field name that holds the seller level string (default 'seller_level')
+     * @param array<int,array<string,mixed>> $items List of items (e.g., gigs)
      *
      * @return array{na:int,level_one:int,level_two:int,top_rated:int,weighted_avg:float|null}
      */
-    public function calculateSellerLevelStats(array $items, string $field = 'seller_level'): array
+    public function calculateSellerLevelStats(array $items): array
     {
         $counts = ['na' => 0, 'level_one' => 0, 'level_two' => 0, 'top_rated' => 0];
         $sum    = 0.0;
         $total  = 0;
 
         foreach ($items as $it) {
-            $lvl = (string) ($it[$field] ?? 'na');
+            $lvl = (string) ($it['seller_level'] ?? 'na');
             $num = $this->getSellerLevelNumeric($lvl);
             $sum += $num;
             $total++;
@@ -685,25 +684,107 @@ class FiverrJsonImporter
      */
     public function computeListingsStatsRow(array $listingsRow): array
     {
-        // Base copy-through fields from listings row
-        $out = [
-            'fiverr_listings_row_id'                        => (int) ($listingsRow['id'] ?? 0),
-            'listingAttributes__id'                         => $listingsRow['listingAttributes__id'] ?? null,
-            'currency__rate'                                => $listingsRow['currency__rate'] ?? null,
-            'rawListingData__has_more'                      => $listingsRow['rawListingData__has_more'] ?? null,
-            'countryCode'                                   => $listingsRow['countryCode'] ?? null,
-            'assumedLanguage'                               => $listingsRow['assumedLanguage'] ?? null,
-            'v2__report__search_total_results'              => $listingsRow['v2__report__search_total_results'] ?? null,
-            'appData__pagination__page'                     => $listingsRow['appData__pagination__page'] ?? null,
-            'appData__pagination__page_size'                => $listingsRow['appData__pagination__page_size'] ?? null,
-            'appData__pagination__total'                    => $listingsRow['appData__pagination__total'] ?? null,
-            'tracking__isNonExperiential'                   => $listingsRow['tracking__isNonExperiential'] ?? null,
-            'tracking__fiverrChoiceGigPosition'             => $listingsRow['tracking__fiverrChoiceGigPosition'] ?? null,
-            'tracking__hasFiverrChoiceGigs'                 => $listingsRow['tracking__hasFiverrChoiceGigs'] ?? null,
-            'tracking__hasPromotedGigs'                     => $listingsRow['tracking__hasPromotedGigs'] ?? null,
-            'tracking__promotedGigsCount'                   => $listingsRow['tracking__promotedGigsCount'] ?? null,
-            'tracking__searchAutoComplete__is_autocomplete' => $listingsRow['tracking__searchAutoComplete__is_autocomplete'] ?? null,
+        // Pre-fill output with all stats keys in migration file column order (null by default)
+        $orderedKeys = [
+            'fiverr_listings_row_id',
+            'currency__rate',
+            'listingAttributes__id',
+            'rawListingData__has_more',
+            'countryCode',
+            'assumedLanguage',
+            'v2__report__search_total_results',
+            'appData__pagination__page',
+            'appData__pagination__page_size',
+            'appData__pagination__total',
+
+            // Gig type counts
+            'cnt___listings__gigs__type___promoted_gigs',
+            'cnt___listings__gigs__type___fiverr_choice',
+            'cnt___listings__gigs__type___fixed_pricing',
+            'cnt___listings__gigs__type___pro',
+            'cnt___listings__gigs__type___missing',
+            'cnt___listings__gigs__type___other',
+
+            // Other gig counts and averages
+            'cnt___listings__gigs__is_fiverr_choice',
+            'cnt___listings__gigs__packages__recommended__extra_fast',
+            'avg___listings__gigs__packages__recommended__price',
+            'avg___listings__gigs__packages__recommended__duration',
+            'avg___listings__gigs__packages__recommended__price_tier',
+            'cnt___listings__gigs__is_pro',
+            'cnt___listings__gigs__is_featured',
+            'cnt___listings__gigs__seller_online',
+            'cnt___listings__gigs__offer_consultation',
+            'cnt___listings__gigs__personalized_pricing_fail',
+            'cnt___listings__gigs__has_recurring_option',
+            'avg___listings__gigs__buying_review_rating_count',
+            'avg___listings__gigs__buying_review_rating',
+
+            // Seller level (from gigs)
+            'cnt___listings__gigs__seller_level___na',
+            'cnt___listings__gigs__seller_level___level_one_seller',
+            'cnt___listings__gigs__seller_level___level_two_seller',
+            'cnt___listings__gigs__seller_level___top_rated_seller',
+            'avg___listings__gigs__seller_level',
+
+            // Remaining listings fields
+            'avg___listings__gigs__seller_rating__count',
+            'avg___listings__gigs__seller_rating__score',
+            'cnt___listings__gigs__is_seller_unavailable',
+            'avg___listings__gigs__price_i',
+            'avg___listings__gigs__package_i',
+            'cnt___listings__gigs__extra_fast',
+            'avg___listings__gigs__num_of_packages',
+
+            // Facets
+            'facets__has_hourly___true___count',
+            'facets__is_agency___true___count',
+            'facets__is_pa_online___true___count',
+            'facets__is_seller_online___true___count',
+            'facets__pro___true___count',
+            'facets__seller_language___en___count',
+            'facets__seller_level___na___count',
+            'facets__seller_level___level_one_seller___count',
+            'facets__seller_level___level_two_seller___count',
+            'facets__seller_level___top_rated_seller___count',
+            'avg___facets___seller_level',
+            'facets__seller_location___us___count',
+            'facets__service_offerings__offer_consultation___count',
+            'facets__service_offerings__subscription___count',
+
+            // Price buckets
+            'priceBucketsSkeleton___0___max',
+            'priceBucketsSkeleton___1___max',
+            'priceBucketsSkeleton___2___max',
+
+            // Tracking (copy-through)
+            'tracking__isNonExperiential',
+            'tracking__fiverrChoiceGigPosition',
+            'tracking__hasFiverrChoiceGigs',
+            'tracking__hasPromotedGigs',
+            'tracking__promotedGigsCount',
+            'tracking__searchAutoComplete__is_autocomplete',
         ];
+
+        $out = array_fill_keys($orderedKeys, null);
+
+        // Base copy-through fields from listings row
+        $out['fiverr_listings_row_id']                        = (int) ($listingsRow['id'] ?? 0);
+        $out['currency__rate']                                = $listingsRow['currency__rate'] ?? null;
+        $out['listingAttributes__id']                         = $listingsRow['listingAttributes__id'] ?? null;
+        $out['rawListingData__has_more']                      = $listingsRow['rawListingData__has_more'] ?? null;
+        $out['countryCode']                                   = $listingsRow['countryCode'] ?? null;
+        $out['assumedLanguage']                               = $listingsRow['assumedLanguage'] ?? null;
+        $out['v2__report__search_total_results']              = $listingsRow['v2__report__search_total_results'] ?? null;
+        $out['appData__pagination__page']                     = $listingsRow['appData__pagination__page'] ?? null;
+        $out['appData__pagination__page_size']                = $listingsRow['appData__pagination__page_size'] ?? null;
+        $out['appData__pagination__total']                    = $listingsRow['appData__pagination__total'] ?? null;
+        $out['tracking__isNonExperiential']                   = $listingsRow['tracking__isNonExperiential'] ?? null;
+        $out['tracking__fiverrChoiceGigPosition']             = $listingsRow['tracking__fiverrChoiceGigPosition'] ?? null;
+        $out['tracking__hasFiverrChoiceGigs']                 = $listingsRow['tracking__hasFiverrChoiceGigs'] ?? null;
+        $out['tracking__hasPromotedGigs']                     = $listingsRow['tracking__hasPromotedGigs'] ?? null;
+        $out['tracking__promotedGigsCount']                   = $listingsRow['tracking__promotedGigsCount'] ?? null;
+        $out['tracking__searchAutoComplete__is_autocomplete'] = $listingsRow['tracking__searchAutoComplete__is_autocomplete'] ?? null;
 
         // Decode listings JSON and get gigs list
         $gigs = [];
@@ -861,7 +942,7 @@ class FiverrJsonImporter
         $out['avg___listings__gigs__num_of_packages']                   = $avg($nums_num_packages);
 
         // Seller level stats from gigs
-        $lvlStats                                                     = $this->calculateSellerLevelStats($sellerLevelItems, 'seller_level');
+        $lvlStats                                                     = $this->calculateSellerLevelStats($sellerLevelItems);
         $out['cnt___listings__gigs__seller_level___na']               = $lvlStats['na'];
         $out['cnt___listings__gigs__seller_level___level_one_seller'] = $lvlStats['level_one'];
         $out['cnt___listings__gigs__seller_level___level_two_seller'] = $lvlStats['level_two'];
@@ -923,5 +1004,91 @@ class FiverrJsonImporter
         $out['priceBucketsSkeleton___2___max'] = isset($priceBuckets[2]['max']) && is_numeric($priceBuckets[2]['max']) ? (int) $priceBuckets[2]['max'] : null;
 
         return $out;
+    }
+
+    /**
+     * Process a batch of unprocessed listings into fiverr_listings_stats.
+     *
+     * - Reads listings row fields (listings, facets, price buckets, tracking, etc.)
+     * - Computes a stats row via computeListingsStatsRow()
+     * - Inserts into fiverr_listings_stats using insertOrIgnore
+     * - Updates the source fiverr_listings row stats_processed_* fields
+     *
+     * @param int $batchSize
+     *
+     * @return array{rows_processed:int,inserted:int,skipped:int}
+     */
+    public function processListingsStatsBatch(int $batchSize = 100): array
+    {
+        ensure_table_exists($this->fiverrListingsStatsTable, $this->fiverrListingsStatsMigrationPath);
+
+        $rows = DB::table($this->fiverrListingsTable)
+            ->whereNull('stats_processed_at')
+            ->orderBy('id', 'asc')
+            ->limit($batchSize)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return ['rows_processed' => 0, 'inserted' => 0, 'skipped' => 0];
+        }
+
+        $inserted  = 0;
+        $skipped   = 0;
+        $processed = 0;
+
+        foreach ($rows as $r) {
+            // Convert stdClass to array and compute stats row
+            $listingsRow = (array) $r;
+            $statsRow    = $this->computeListingsStatsRow($listingsRow);
+
+            // Insert into stats table
+            $res = $this->insertRows($this->fiverrListingsStatsTable, $statsRow);
+            $inserted += (int) $res['inserted'];
+            $skipped += (int) $res['skipped'];
+
+            // Update source row processed markers
+            DB::table($this->fiverrListingsTable)->where('id', $r->id)->update([
+                'stats_processed_at'     => now(),
+                'stats_processed_status' => json_encode(
+                    [
+                        'row_id'   => (int) $r->id,
+                        'inserted' => (int) $res['inserted'],
+                        'skipped'  => (int) $res['skipped'],
+                    ],
+                    $this->jsonFlags
+                ),
+            ]);
+
+            $processed++;
+        }
+
+        return ['rows_processed' => $processed, 'inserted' => $inserted, 'skipped' => $skipped];
+    }
+
+    /**
+     * Process all unprocessed listings into fiverr_listings_stats in batches.
+     *
+     * @param int $batchSize
+     *
+     * @return array{rows_processed:int,inserted:int,skipped:int}
+     */
+    public function processListingsStatsAll(int $batchSize = 100): array
+    {
+        $grandProcessed = 0;
+        $grandInserted  = 0;
+        $grandSkipped   = 0;
+
+        do {
+            $res = $this->processListingsStatsBatch($batchSize);
+            $grandProcessed += $res['rows_processed'];
+            $grandInserted += $res['inserted'];
+            $grandSkipped += $res['skipped'];
+        } while ($res['rows_processed'] > 0);
+
+        return [
+            'rows_processed' => $grandProcessed,
+            'inserted'       => $grandInserted,
+            'skipped'        => $grandSkipped,
+        ];
     }
 }
