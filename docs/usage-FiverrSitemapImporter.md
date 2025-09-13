@@ -2,7 +2,10 @@
 
 A helper class that imports Fiverr sitemap data (categories and tags) into your database in batches.
 
-After running, check the tables. By default, the tables are `fiverr_sitemap_categories` and `fiverr_sitemap_tags`.
+After running, check the tables. By default, the tables are:
+
+- fiverr_sitemap_categories
+- fiverr_sitemap_tags
 
 See: [`../examples/fiverr_sitemap_importer_test.php`](../examples/fiverr_sitemap_importer_test.php)
 

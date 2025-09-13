@@ -372,45 +372,84 @@ class FiverrJsonImporterTest extends TestCase
     public function test_resetListingsProcessed_clears_flags_and_returns_count(): void
     {
         $importer = new FiverrJsonImporter();
+        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
 
-        // Seed 2 listings via importer to ensure schema and minimal required fields
-        $payload1 = ['listingAttributes' => ['id' => 'L10'], 'listings' => [['gigs' => []]]];
-        $payload2 = ['listingAttributes' => ['id' => 'L11'], 'listings' => [['gigs' => []]]];
-        $json1    = tempnam(sys_get_temp_dir(), 'importer_json_');
-        $json2    = tempnam(sys_get_temp_dir(), 'importer_json_');
-        file_put_contents($json1, json_encode($payload1));
-        file_put_contents($json2, json_encode($payload2));
-
-        try {
-            $importer->importListingsJson($json1);
-            $importer->importListingsJson($json2);
-        } finally {
-            unlink($json1);
-            unlink($json2);
-        }
-
-        // Mark them processed
-        DB::table($importer->getFiverrListingsTable())->update([
-            'processed_at'     => now(),
-            'processed_status' => json_encode(['x' => 1], $importer->getJsonFlags()),
+        // Seed two rows directly
+        DB::table($importer->getFiverrListingsTable())->insert([
+            [
+                'listingAttributes__id' => 'L10',
+                'processed_at'          => now(),
+                'processed_status'      => json_encode(['x' => 1], $importer->getJsonFlags()),
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ],
+            [
+                'listingAttributes__id' => 'L11',
+                'processed_at'          => now(),
+                'processed_status'      => json_encode(['x' => 2], $importer->getJsonFlags()),
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ],
         ]);
 
         // Reset and assert
         $updated = $importer->resetListingsProcessed();
         $this->assertSame(2, $updated);
+
         $rows = DB::table($importer->getFiverrListingsTable())->get();
         $this->assertCount(2, $rows);
-
         foreach ($rows as $r) {
             $this->assertNull($r->processed_at);
             $this->assertNull($r->processed_status);
         }
     }
 
-    public function test_resetListingsProcessed_noop_returns_zero(): void
+    public function test_resetListingsProcessed_when_no_rows_returns_zero(): void
     {
         $importer = new FiverrJsonImporter();
         $updated  = $importer->resetListingsProcessed();
+        $this->assertSame(0, $updated);
+    }
+
+    public function test_resetListingsStatsProcessed_clears_flags_and_returns_count(): void
+    {
+        $importer = new FiverrJsonImporter();
+        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
+
+        // Seed two rows directly
+        DB::table($importer->getFiverrListingsTable())->insert([
+            [
+                'listingAttributes__id'  => 'S10',
+                'stats_processed_at'     => now(),
+                'stats_processed_status' => json_encode(['y' => 1], $importer->getJsonFlags()),
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ],
+            [
+                'listingAttributes__id'  => 'S11',
+                'stats_processed_at'     => now(),
+                'stats_processed_status' => json_encode(['y' => 2], $importer->getJsonFlags()),
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ],
+        ]);
+
+        // Reset and assert
+        $updated = $importer->resetListingsStatsProcessed();
+        $this->assertSame(2, $updated);
+
+        $rows = DB::table($importer->getFiverrListingsTable())->get();
+        $this->assertCount(2, $rows);
+        foreach ($rows as $r) {
+            $this->assertNull($r->stats_processed_at);
+            $this->assertNull($r->stats_processed_status);
+        }
+    }
+
+    public function test_resetListingsStatsProcessed_when_no_rows_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $updated  = $importer->resetListingsStatsProcessed();
         $this->assertSame(0, $updated);
     }
 

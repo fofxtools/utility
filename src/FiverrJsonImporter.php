@@ -441,6 +441,25 @@ class FiverrJsonImporter
     }
 
     /**
+     * Reset stats processing status for listings so they can be re-processed for stats.
+     * Sets stats_processed_at and stats_processed_status to null for all rows.
+     *
+     * @return int Number of rows updated
+     */
+    public function resetListingsStatsProcessed(): int
+    {
+        $updated = DB::table($this->fiverrListingsTable)
+            ->update([
+                'stats_processed_at'     => null,
+                'stats_processed_status' => null,
+            ]);
+
+        Log::debug('Reset stats processed status for fiverr_listings', ['rows_updated' => $updated]);
+
+        return $updated;
+    }
+
+    /**
      * Process a batch of unprocessed listings into fiverr_listings_gigs.
      *
      * - Read listings[0].gigs and insert into fiverr_listings_gigs.
