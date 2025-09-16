@@ -1,5 +1,6 @@
 includes:
     - vendor/phpstan/phpstan-mockery/extension.neon
+    - vendor/larastan/larastan/extension.neon
 
 parameters:
     level: 5
@@ -15,3 +16,6 @@ parameters:
         - local/deleted
         - resources
         - tmp
+    ignoreErrors:
+        - identifier: larastan.noEnvCallsOutsideOfConfig
+    reportUnmatchedIgnoredErrors: false

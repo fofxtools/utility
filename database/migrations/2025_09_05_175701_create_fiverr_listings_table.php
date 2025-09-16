@@ -99,6 +99,8 @@ return new class () extends Migration {
             $table->text('processed_status')->nullable();
             $table->timestamp('stats_processed_at')->nullable();
             $table->text('stats_processed_status')->nullable();
+            $table->timestamp('gigs_stats_processed_at')->nullable();
+            $table->text('gigs_stats_processed_status')->nullable();
 
             // Unique index on listingAttributes__id
             $table->unique('listingAttributes__id');
@@ -110,6 +112,7 @@ return new class () extends Migration {
             $table->index('tracking__promotedGigsCount');
             $table->index('processed_at');
             $table->index('stats_processed_at');
+            $table->index('gigs_stats_processed_at');
         });
     }
 

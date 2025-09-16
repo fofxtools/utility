@@ -3,8 +3,13 @@
 require_once __DIR__ . '/bootstrap.php';
 
 use FOfX\Utility\FiverrJsonImporter;
+use FOfX\Helper;
+use Illuminate\Support\Arr;
 
 use function FOfX\Utility\ensure_table_exists;
+
+// Increase memory for getAllListingsData()
+Helper\minimum_memory_limit('2048M');
 
 $start = microtime(true);
 
@@ -45,6 +50,18 @@ print_r($stats);
 echo "\n== Process fiverr_listings_stats from listings JSON ==\n";
 $stats = $importer->processListingsStatsAll();
 print_r($stats);
+
+echo "\n== Test getAllListingsData ==\n";
+$map      = $importer->getAllListingsData();
+$slice    = array_slice($map, 0, 3);
+$dot      = Arr::dot($slice);
+$sliceDot = array_slice($dot, 0, 10);
+print_r($sliceDot);
+
+echo "\n== Test getGigIdToListingIdMapBetweenPositions ==\n";
+$map   = $importer->getGigIdToListingIdMapBetweenPositions(0, 7);
+$slice = array_slice($map, 0, 10, preserve_keys: true);
+print_r($slice);
 
 $end = microtime(true);
 echo "\nTotal time: " . ($end - $start) . " seconds\n";

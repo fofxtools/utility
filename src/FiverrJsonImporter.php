@@ -7,6 +7,7 @@ namespace FOfX\Utility;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 /**
  * Importer for decoding Fiverr embedded JSON and inserting into fiverr_* tables.
@@ -478,7 +479,16 @@ class FiverrJsonImporter
         $targetTextCols = $this->getTextColumns($this->fiverrListingsGigsTable);
 
         $rows = DB::table($this->fiverrListingsTable)
-            ->select(['id', 'listings'])
+            ->select([
+                'id',
+                'listings',
+                'listingAttributes__id',
+                'displayData__categoryName',
+                'displayData__subCategoryName',
+                'displayData__nestedSubCategoryName',
+                'displayData__cachedSlug',
+                'displayData__name',
+            ])
             ->whereNull('processed_at')
             ->orderBy('id', 'asc')
             ->limit($batchSize)
@@ -515,9 +525,25 @@ class FiverrJsonImporter
 
             $rowStats['gigs_seen'] = count($gigs);
 
+            // Parent listing-derived fields to overlay into each gig row (if missing)
+            $parentOverlay = [
+                'listingAttributes__id'              => $r->listingAttributes__id ?? null,
+                'displayData__categoryName'          => $r->displayData__categoryName ?? null,
+                'displayData__subCategoryName'       => $r->displayData__subCategoryName ?? null,
+                'displayData__nestedSubCategoryName' => $r->displayData__nestedSubCategoryName ?? null,
+                'displayData__cachedSlug'            => $r->displayData__cachedSlug ?? null,
+                'displayData__name'                  => $r->displayData__name ?? null,
+            ];
+
             $batch = [];
             foreach ($gigs as $g) {
-                $batch[] = $this->extractAndEncode($g, $targetColumns, $targetTextCols);
+                $row = $this->extractAndEncode($g, $targetColumns, $targetTextCols);
+
+                foreach ($parentOverlay as $col => $val) {
+                    $row[$col] = $val;
+                }
+
+                $batch[] = $row;
             }
 
             $ins = 0;
@@ -1109,5 +1135,147 @@ class FiverrJsonImporter
             'inserted'       => $grandInserted,
             'skipped'        => $grandSkipped,
         ];
+    }
+
+    /**
+     * Build and cache a map of listingAttributes__id => decoded listings array.
+     *
+     * @param int  $chunkSize    Chunk size for DB query
+     * @param bool $useRedis     Use Redis cache (default true)
+     * @param bool $forceRebuild Force rebuild even if cache is present (default false)
+     *
+     * @return array<string,array<mixed>>
+     */
+    public function getAllListingsData(int $chunkSize = 100, bool $useRedis = true, bool $forceRebuild = false): array
+    {
+        $redisKeyJson = 'utility:all_listings_data:json';
+
+        // Try Redis cache first
+        if ($useRedis) {
+            try {
+                if ($forceRebuild) {
+                    Redis::del($redisKeyJson);
+                } else {
+                    $cached = Redis::get($redisKeyJson);
+                    if (is_string($cached) && $cached !== '') {
+                        $arr = json_decode($cached, true);
+                        if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
+                            return $arr; // associative array: listingAttributes__id => decoded listings array
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // ignore and rebuild
+            }
+        }
+
+        // Build map from DB: listingAttributes__id => decoded listings JSON
+        $map = [];
+        DB::table($this->fiverrListingsTable)
+            ->select(['id', 'listingAttributes__id', 'listings'])
+            ->orderBy('id', 'asc')
+            ->chunkById($chunkSize, function ($rows) use (&$map) {
+                foreach ($rows as $r) {
+                    $listingId = $r->listingAttributes__id ?? null;
+                    if ($listingId === null) {
+                        continue;
+                    }
+                    if (!is_string($r->listings) || $r->listings === '') {
+                        continue;
+                    }
+                    $decoded = json_decode($r->listings, true);
+                    if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+                        continue;
+                    }
+                    // Use string key to be explicit, but either string/int works in PHP array keys
+                    $map[(string) $listingId] = $decoded;
+                }
+            }, 'id');
+
+        // Cache and return
+        if ($useRedis) {
+            Redis::set($redisKeyJson, json_encode($map));
+        }
+
+        return $map;
+    }
+
+    /**
+     * Build and cache a mapping of gigId => listingAttributes__id for gigs whose 'pos' (position) is within [low, high].
+     *
+     * First match in range wins when a gig appears multiple times.
+     *
+     * @param int  $low          Low position (inclusive)
+     * @param int  $high         High position (inclusive)
+     * @param bool $useRedis     Use Redis cache (default true)
+     * @param bool $forceRebuild Force rebuild even if cache is present (default false)
+     *
+     * @return array<int,string> Map of gigId => listingAttributes__id
+     */
+    public function getGigIdToListingIdMapBetweenPositions(int $low, int $high, bool $useRedis = true, bool $forceRebuild = false): array
+    {
+        // Validate range
+        if ($low > $high) {
+            throw new \InvalidArgumentException("Invalid position range: [{$low}, {$high}]");
+        }
+
+        // Check Redis cache for this range first
+        $redisKey = "utility:gig_ids_by_pos:{$low}:{$high}:json";
+
+        if ($useRedis) {
+            try {
+                if ($forceRebuild) {
+                    Redis::del($redisKey);
+                } else {
+                    $cached = Redis::get($redisKey);
+                    if (is_string($cached) && $cached !== '') {
+                        $arr = json_decode($cached, true);
+                        if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
+                            $out = [];
+                            foreach ($arr as $gigId => $listingId) {
+                                $out[(int) $gigId] = (string) $listingId;
+                            }
+
+                            return $out;
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+                // Ignore and rebuild
+            }
+        }
+
+        $data = $this->getAllListingsData(useRedis: $useRedis, forceRebuild: $forceRebuild);
+
+        $set = [];
+        foreach ($data as $listingId => $decoded) {
+            if (!isset($decoded[0]['gigs']) || !is_array($decoded[0]['gigs'])) {
+                continue;
+            }
+
+            foreach ($decoded[0]['gigs'] as $g) {
+                if (!isset($g['gigId'])) {
+                    continue;
+                }
+                $pos = $g['pos'] ?? null;
+                if ($pos === null) {
+                    continue;
+                }
+                $p = (int) $pos;
+                if ($p >= $low && $p <= $high) {
+                    $gid = (int) $g['gigId'];
+                    if (!isset($set[$gid])) {
+                        $set[$gid] = (string) $listingId;
+                    }
+                }
+            }
+        }
+
+        // Cache result for this range
+        if ($useRedis) {
+            Redis::set($redisKey, json_encode($set));
+        }
+
+        return $set;
     }
 }

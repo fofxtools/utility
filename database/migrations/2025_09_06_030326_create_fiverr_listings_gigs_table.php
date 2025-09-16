@@ -12,6 +12,7 @@ return new class () extends Migration {
 
             // Core gig identification
             $table->integer('gigId')->unique();
+            $table->string('listingAttributes__id')->nullable();
             $table->integer('pos')->nullable();
             $table->string('type')->nullable();
             $table->string('auction__id')->nullable();
@@ -29,6 +30,11 @@ return new class () extends Migration {
             $table->integer('category_id')->nullable();
             $table->integer('sub_category_id')->nullable();
             $table->integer('nested_sub_category_id')->nullable();
+            $table->string('displayData__categoryName')->nullable();
+            $table->string('displayData__subCategoryName')->nullable();
+            $table->string('displayData__nestedSubCategoryName')->nullable();
+            $table->string('displayData__cachedSlug')->nullable();
+            $table->string('displayData__name')->nullable();
 
             // Gig flags
             $table->boolean('is_pro')->nullable();
@@ -81,6 +87,7 @@ return new class () extends Migration {
             $table->text('processed_status')->nullable();
 
             // Indexes
+            $table->index('listingAttributes__id');
             $table->index('pos');
             $table->index('type');
             $table->index('is_fiverr_choice');

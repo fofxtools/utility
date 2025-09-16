@@ -27,7 +27,8 @@
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.3",
         "orchestra/testbench": "^10.4",
-        "phpstan/phpstan-mockery": "^2.0"
+        "phpstan/phpstan-mockery": "^2.0",
+        "larastan/larastan": "^3.7"
     },
     "require": {
         "php": "^8.3",

@@ -1192,4 +1192,152 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame(0, $res2['inserted']);
         $this->assertSame(0, $res2['skipped']);
     }
+
+    public function test_getAllListingsData_returns_map_with_decoded_gigs(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed two listings with minimal gigs arrays
+        $payload1 = [
+            'listingAttributes' => ['id' => 'L1'],
+            'listings'          => [['gigs' => [
+                ['gigId' => 1001, 'pos' => 0],
+                ['gigId' => 1002, 'pos' => 10],
+            ]]],
+        ];
+        $payload2 = [
+            'listingAttributes' => ['id' => 'L2'],
+            'listings'          => [['gigs' => [
+                ['gigId' => 2001, 'pos' => 5],
+                ['gigId' => 1002, 'pos' => 7], // duplicate gigId across listings
+            ]]],
+        ];
+
+        foreach ([$payload1, $payload2] as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $map = $importer->getAllListingsData(useRedis: false);
+
+        $this->assertArrayHasKey('L1', $map);
+        $this->assertArrayHasKey('L2', $map);
+        $this->assertIsArray($map['L1'][0]['gigs']);
+        $this->assertIsArray($map['L2'][0]['gigs']);
+        // Verify decoded gigs present
+        $this->assertSame(2, count($map['L1'][0]['gigs'] ?? []));
+        $this->assertSame(2, count($map['L2'][0]['gigs'] ?? []));
+    }
+
+    public function test_getAllListingsData_skips_malformed_json(): void
+    {
+        $importer = new FiverrJsonImporter();
+        // Ensure table exists and seed bad JSON row directly
+        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
+
+        DB::table($importer->getFiverrListingsTable())->insert([
+            'listingAttributes__id' => 'BAD1',
+            'listings'              => '{invalid-json',
+            'created_at'            => now(),
+            'updated_at'            => now(),
+        ]);
+
+        $map = $importer->getAllListingsData(useRedis: false);
+        $this->assertArrayNotHasKey('BAD1', $map); // BAD1 should not be present
+    }
+
+    public function test_getGigIdToListingIdMapBetweenPositions_filters_and_maps(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed two listings with gigs and positions
+        $payload1 = [
+            'listingAttributes' => ['id' => 'GL1'],
+            'listings'          => [['gigs' => [
+                ['gigId' => 1101, 'pos' => 0],   // in range
+                ['gigId' => 1102, 'pos' => 10],  // out of range for [0,7]
+            ]]],
+        ];
+        $payload2 = [
+            'listingAttributes' => ['id' => 'GL2'],
+            'listings'          => [['gigs' => [
+                ['gigId' => 2201, 'pos' => 5],   // in range
+                ['gigId' => 1102, 'pos' => 7],   // duplicate gigId, in range here
+            ]]],
+        ];
+
+        foreach ([$payload1, $payload2] as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $map = $importer->getGigIdToListingIdMapBetweenPositions(0, 7, useRedis: false);
+
+        // Should include 1101=>GL1, 2201=>GL2, and 1102=>GL2 (only qualifies in GL2)
+        $this->assertSame('GL1', $map[1101]);
+        $this->assertSame('GL2', $map[2201]);
+        $this->assertSame('GL2', $map[1102]);
+    }
+
+    public function test_getGigIdToListingIdMapBetweenPositions_range_10_15(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $payloadA = [
+            'listingAttributes' => ['id' => 'GL3'],
+            'listings'          => [[
+                'gigs' => [
+                    ['gigId' => 3101, 'pos' => 10], // in
+                    ['gigId' => 3102, 'pos' => 15], // in (first seen for 3102)
+                    ['gigId' => 3103, 'pos' => 9],  // out
+                ],
+            ]],
+        ];
+        $payloadB = [
+            'listingAttributes' => ['id' => 'GL4'],
+            'listings'          => [[
+                'gigs' => [
+                    ['gigId' => 3102, 'pos' => 12], // in but duplicate; should not override first
+                    ['gigId' => 3201, 'pos' => 20], // out
+                ],
+            ]],
+        ];
+
+        foreach ([$payloadA, $payloadB] as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $map = $importer->getGigIdToListingIdMapBetweenPositions(10, 15, useRedis: false);
+
+        $this->assertSame('GL3', $map[3101]);
+        $this->assertSame('GL3', $map[3102]); // first match wins
+        $this->assertArrayNotHasKey(3103, $map); // below range
+        $this->assertArrayNotHasKey(3201, $map); // above range
+    }
+
+    public function test_getGigIdToListingIdMapBetweenPositions_throws_on_invalid_range(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->expectException(\InvalidArgumentException::class);
+        $importer->getGigIdToListingIdMapBetweenPositions(10, 5, useRedis: false);
+    }
 }
