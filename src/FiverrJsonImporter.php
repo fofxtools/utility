@@ -607,11 +607,55 @@ class FiverrJsonImporter
             'level_one_seller' => 1,
             'level_two_seller' => 2,
             'top_rated_seller' => 3,
+            // In fiverr_gigs seller__sellerLevel
+            'new_seller' => 0,
+            'level_one'  => 1,
+            'level_two'  => 2,
+            'level_trs'  => 3,
         ];
 
         $key = strtolower(trim($level));
 
         return $map[$key] ?? 0;
+    }
+
+    /**
+     * Adjust seller level using Fiverr thresholds and return max(existing, inferred).
+     *
+     * Thresholds (inclusive):
+     * - TR (3): rating >= 4.7 and count >= 40
+     * - Level 2 (2): rating >= 4.6 and count >= 20
+     * - Level 1 (1): rating >= 4.4 and count >= 5
+     *
+     * If $rating is null, infer from count only: 40→3, 20→2, 5→1, else 0.
+     */
+    public function getSellerLevelAdjusted(int $sellerLevel, int $count, ?float $rating = null): int
+    {
+        $inferred = 0;
+
+        if ($rating === null) {
+            if ($count >= 40) {
+                $inferred = 3;
+            } elseif ($count >= 20) {
+                $inferred = 2;
+            } elseif ($count >= 5) {
+                $inferred = 1;
+            } else {
+                $inferred = 0;
+            }
+        } else {
+            if ($rating >= 4.7 && $count >= 40) {
+                $inferred = 3;
+            } elseif ($rating >= 4.6 && $count >= 20) {
+                $inferred = 2;
+            } elseif ($rating >= 4.4 && $count >= 5) {
+                $inferred = 1;
+            } else {
+                $inferred = 0;
+            }
+        }
+
+        return max($sellerLevel, $inferred);
     }
 
     /**
@@ -665,6 +709,52 @@ class FiverrJsonImporter
             'top_rated'    => $counts['top_rated'],
             'weighted_avg' => $avg,
         ];
+    }
+
+    /**
+     * Calculate adjusted seller levels for gigs and their average.
+     *
+     * For each gig:
+     * - Gets the existing numeric seller level
+     * - Reads seller reviews count from seller_rating.count (missing => 0)
+     * - Computes adjusted = getSellerLevelAdjusted(existing, count, null)
+     * - Returns the per-gig adjusted values and their average
+     *
+     * @param array<int,array<string,mixed>> $gigs
+     * @param bool                           $useRatings When true, pass seller_rating.score to getSellerLevelAdjusted; otherwise pass null
+     *
+     * @return array{values:array<int,int>,avg:float|null}
+     */
+    public function calculateSellerLevelAdjustedStats(array $gigs, bool $useRatings = false): array
+    {
+        $values = [];
+        $sum    = 0.0;
+
+        foreach ($gigs as $g) {
+            $lvlRaw = $g['seller_level'] ?? null;
+            $lvlNum = is_string($lvlRaw) ? $this->getSellerLevelNumeric($lvlRaw) : 0;
+
+            $cnt    = 0;
+            $rating = null;
+            if (isset($g['seller_rating']) && is_array($g['seller_rating'])) {
+                $c = $g['seller_rating']['count'] ?? null;
+                if (is_numeric($c)) {
+                    $cnt = (int) $c;
+                }
+                $r = $g['seller_rating']['score'] ?? null;
+                if (is_numeric($r)) {
+                    $rating = (float) $r;
+                }
+            }
+
+            $adj      = $this->getSellerLevelAdjusted($lvlNum, $cnt, $useRatings ? $rating : null);
+            $values[] = $adj;
+            $sum += $adj;
+        }
+
+        $avg = count($values) > 0 ? $sum / count($values) : null;
+
+        return ['values' => $values, 'avg' => $avg];
     }
 
     /**
@@ -732,8 +822,20 @@ class FiverrJsonImporter
         // Pre-fill output with all stats keys in migration file column order (null by default)
         $orderedKeys = [
             'fiverr_listings_row_id',
-            'currency__rate',
             'listingAttributes__id',
+
+            // Category information
+            'categoryIds__categoryId',
+            'categoryIds__subCategoryId',
+            'categoryIds__nestedSubCategoryId',
+            'displayData__categoryName',
+            'displayData__subCategoryName',
+            'displayData__nestedSubCategoryName',
+            'displayData__cachedSlug',
+            'displayData__name',
+
+            // General information
+            'currency__rate',
             'rawListingData__has_more',
             'countryCode',
             'assumedLanguage',
@@ -815,8 +917,16 @@ class FiverrJsonImporter
 
         // Base copy-through fields from listings row
         $out['fiverr_listings_row_id']                        = (int) ($listingsRow['id'] ?? 0);
-        $out['currency__rate']                                = $listingsRow['currency__rate'] ?? null;
         $out['listingAttributes__id']                         = $listingsRow['listingAttributes__id'] ?? null;
+        $out['categoryIds__categoryId']                       = $listingsRow['categoryIds__categoryId'] ?? null;
+        $out['categoryIds__subCategoryId']                    = $listingsRow['categoryIds__subCategoryId'] ?? null;
+        $out['categoryIds__nestedSubCategoryId']              = $listingsRow['categoryIds__nestedSubCategoryId'] ?? null;
+        $out['displayData__categoryName']                     = $listingsRow['displayData__categoryName'] ?? null;
+        $out['displayData__subCategoryName']                  = $listingsRow['displayData__subCategoryName'] ?? null;
+        $out['displayData__nestedSubCategoryName']            = $listingsRow['displayData__nestedSubCategoryName'] ?? null;
+        $out['displayData__cachedSlug']                       = $listingsRow['displayData__cachedSlug'] ?? null;
+        $out['displayData__name']                             = $listingsRow['displayData__name'] ?? null;
+        $out['currency__rate']                                = $listingsRow['currency__rate'] ?? null;
         $out['rawListingData__has_more']                      = $listingsRow['rawListingData__has_more'] ?? null;
         $out['countryCode']                                   = $listingsRow['countryCode'] ?? null;
         $out['assumedLanguage']                               = $listingsRow['assumedLanguage'] ?? null;
@@ -848,6 +958,7 @@ class FiverrJsonImporter
                 $arr[] = (float) $v;
             }
         };
+
         $avg = static function (array $nums): ?float {
             $n = count($nums);
             if ($n === 0) {
@@ -951,7 +1062,7 @@ class FiverrJsonImporter
             $addNum($nums_num_packages, $g['num_of_packages'] ?? null);
 
             // Seller level item
-            $sellerLevelItems[] = ['seller_level' => (string) ($g['seller_level'] ?? 'na')];
+            $sellerLevelItems[] = ['seller_level' => (string) ($g['seller_level'] ?? null)];
         }
 
         // Map type counts
@@ -1140,20 +1251,20 @@ class FiverrJsonImporter
     /**
      * Build and cache a map of listingAttributes__id => decoded listings array.
      *
-     * @param int  $chunkSize    Chunk size for DB query
-     * @param bool $useRedis     Use Redis cache (default true)
-     * @param bool $forceRebuild Force rebuild even if cache is present (default false)
+     * @param int  $chunkSize         Chunk size for DB query
+     * @param bool $useRedis          Use Redis cache (default true)
+     * @param bool $forceRedisRebuild Force Redis rebuild even if cache is present (default false)
      *
      * @return array<string,array<mixed>>
      */
-    public function getAllListingsData(int $chunkSize = 100, bool $useRedis = true, bool $forceRebuild = false): array
+    public function getAllListingsData(int $chunkSize = 100, bool $useRedis = true, bool $forceRedisRebuild = false): array
     {
         $redisKeyJson = 'utility:all_listings_data:json';
 
         // Try Redis cache first
         if ($useRedis) {
             try {
-                if ($forceRebuild) {
+                if ($forceRedisRebuild) {
                     Redis::del($redisKeyJson);
                 } else {
                     $cached = Redis::get($redisKeyJson);
@@ -1205,14 +1316,14 @@ class FiverrJsonImporter
      *
      * First match in range wins when a gig appears multiple times.
      *
-     * @param int  $low          Low position (inclusive)
-     * @param int  $high         High position (inclusive)
-     * @param bool $useRedis     Use Redis cache (default true)
-     * @param bool $forceRebuild Force rebuild even if cache is present (default false)
+     * @param int  $low               Low position (inclusive)
+     * @param int  $high              High position (inclusive)
+     * @param bool $useRedis          Use Redis cache (default true)
+     * @param bool $forceRedisRebuild Force Redis rebuild even if cache is present (default false)
      *
      * @return array<int,string> Map of gigId => listingAttributes__id
      */
-    public function getGigIdToListingIdMapBetweenPositions(int $low, int $high, bool $useRedis = true, bool $forceRebuild = false): array
+    public function getGigIdToListingIdMapBetweenPositions(int $low, int $high, bool $useRedis = true, bool $forceRedisRebuild = false): array
     {
         // Validate range
         if ($low > $high) {
@@ -1224,7 +1335,7 @@ class FiverrJsonImporter
 
         if ($useRedis) {
             try {
-                if ($forceRebuild) {
+                if ($forceRedisRebuild) {
                     Redis::del($redisKey);
                 } else {
                     $cached = Redis::get($redisKey);
@@ -1245,7 +1356,7 @@ class FiverrJsonImporter
             }
         }
 
-        $data = $this->getAllListingsData(useRedis: $useRedis, forceRebuild: $forceRebuild);
+        $data = $this->getAllListingsData(useRedis: $useRedis, forceRedisRebuild: $forceRedisRebuild);
 
         $set = [];
         foreach ($data as $listingId => $decoded) {
@@ -1277,5 +1388,301 @@ class FiverrJsonImporter
         }
 
         return $set;
+    }
+
+    /**
+     * Parse a delivery time string like "1 day" or "3 days" into integer days.
+     *
+     * - Returns null for null/empty/non-numeric inputs
+     * - Extracts the first integer found in the string and returns it
+     *
+     * @param string|null $s
+     *
+     * @return int|null Number of days, or null if not parseable
+     */
+    public function parseDeliveryTimeDays(?string $s): ?int
+    {
+        if ($s === null) {
+            return null;
+        }
+
+        $s = trim($s);
+        if ($s === '') {
+            return null;
+        }
+
+        if (preg_match('/(\d+)/', $s, $m) === 1) {
+            return (int) $m[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract arrays of values for selected fiverr_gigs columns for a given list of gigIds.
+     *
+     * This is a compute-only helper: it does not write to any table. The returned arrays
+     * can later be JSON-encoded by a separate method when persisting into stats.
+     *
+     * @param array<int,int|string> $gigIds List of gig IDs (from general__gigId)
+     *
+     * @return array<string,array<int,mixed>> Map of column => list of values in the same order as input gigIds
+     */
+    public function extractGigFieldArrays(array $gigIds): array
+    {
+        // Normalize and de-duplicate gig IDs while preserving input order
+        $seen    = [];
+        $ordered = [];
+
+        foreach ($gigIds as $id) {
+            $gid = (int) $id;
+            if ($gid > 0 && !isset($seen[$gid])) {
+                $seen[$gid] = true;
+                $ordered[]  = $gid;
+            }
+        }
+
+        // Define the fiverr_gigs columns we need to extract
+        $fields = [
+            'sellerCard__memberSince',
+            'sellerCard__responseTime',
+            'sellerCard__recentDelivery',
+            'overview__gig__rating',
+            'overview__gig__ratingsCount',
+            'overview__gig__ordersInQueue',
+            'topNav__gigCollectedCount',
+            'portfolio__projectsCount',
+            'seo__description__deliveryTime',
+            'seo__schemaMarkup__gigOffers__lowPrice',
+            'seo__schemaMarkup__gigOffers__highPrice',
+            'seller__user__joinedAt',
+            'seller__sellerLevel',
+            'seller__isPro',
+            'seller__rating__count',
+            'seller__rating__score',
+            'seller__responseTime__inHours',
+            'seller__completedOrdersCount',
+        ];
+
+        // Initialize result arrays
+        $result = [];
+        foreach ($fields as $f) {
+            $result[$f] = [];
+        }
+        // Derived field (not stored in DB): adjusted seller level per gig
+        // Do not add to $fields since it is not a $fiverrGigsTable column, and $fields is used in the query
+        $result['seller__sellerLevel___adjusted'] = [];
+
+        if (empty($ordered)) {
+            return $result;
+        }
+
+        // Fetch rows once and index by gigId for quick lookup
+        $rows = DB::table($this->fiverrGigsTable)
+            ->select(array_merge(['general__gigId'], $fields))
+            ->whereIn('general__gigId', $ordered)
+            ->get();
+
+        $byId = [];
+        foreach ($rows as $row) {
+            $gid = (int) ($row->{'general__gigId'} ?? 0);
+            if ($gid > 0) {
+                $byId[$gid] = $row;
+            }
+        }
+
+        // Populate arrays in the same order as the input gigIds
+        foreach ($ordered as $gid) {
+            if (!isset($byId[$gid])) {
+                continue;
+            }
+            $row = $byId[$gid];
+            foreach ($fields as $f) {
+                // Access dynamic property safely
+                $val = $row->{$f} ?? null;
+                if ($f === 'seller__sellerLevel') {
+                    $result[$f][] = $val === null ? null : $this->getSellerLevelNumeric((string) $val);
+                } elseif ($f === 'seo__description__deliveryTime') {
+                    $result[$f][] = $val === null ? null : $this->parseDeliveryTimeDays((string) $val);
+                } else {
+                    $result[$f][] = $val;
+                }
+            }
+
+            // Compute adjusted seller level (count-only) using max(rating_count, completedOrders)
+            $lvlRaw = $row->{'seller__sellerLevel'} ?? null;
+            $lvlNum = is_string($lvlRaw) ? $this->getSellerLevelNumeric($lvlRaw) : 0;
+
+            $ratingCount = $row->{'seller__rating__count'} ?? null;
+            if (is_numeric($ratingCount)) {
+                $ratingCount = (int) $ratingCount;
+            }
+
+            $completedOrdersCount = $row->{'seller__completedOrdersCount'} ?? null;
+            if (is_numeric($completedOrdersCount)) {
+                $completedOrdersCount = (int) $completedOrdersCount;
+            }
+
+            $count = max(0, $ratingCount, $completedOrdersCount);
+            $adj   = $this->getSellerLevelAdjusted($lvlNum, $count, null);
+
+            $result['seller__sellerLevel___adjusted'][] = $adj;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Compute averages of selected gig fields for a given listingAttributes__id within a position range.
+     *
+     * This is compute-only: it reads fiverr_listings and fiverr_gigs and returns an associative array
+     * where keys are the same field names as extractGigFieldArrays() and values are float|null averages.
+     */
+    public function computeListingGigFieldAverages(string $listingAttributesId, int $low = 0, int $high = 7, bool $useRedis = true, bool $forceRedisRebuild = false): array
+    {
+        // Map gigId => listingAttributes__id for the range, then filter to the target listing
+        $map = $this->getGigIdToListingIdMapBetweenPositions($low, $high, $useRedis, $forceRedisRebuild);
+
+        $gigIds = [];
+        foreach ($map as $gid => $lid) {
+            if ((string) $lid === $listingAttributesId) {
+                $gigIds[] = (int) $gid;
+            }
+        }
+
+        // Get arrays of values for each field
+        $arrays = $this->extractGigFieldArrays($gigIds);
+
+        // Helper to average numeric-like values, ignoring nulls and non-numeric
+        $avg = static function (array $values): ?float {
+            $sum = 0.0;
+            $cnt = 0;
+            foreach ($values as $v) {
+                if ($v === null) {
+                    continue;
+                }
+                // Accept bool/int/float numeric; numeric strings cast via (float)
+                if (is_bool($v)) {
+                    $sum += $v ? 1.0 : 0.0;
+                    $cnt++;
+                } elseif (is_int($v) || is_float($v)) {
+                    $sum += (float) $v;
+                    $cnt++;
+                } elseif (is_string($v)) {
+                    $trim = trim($v);
+                    if ($trim === '') {
+                        continue;
+                    }
+                    // Cast numeric-looking strings (e.g., '15.00')
+                    if (is_numeric($trim)) {
+                        $sum += (float) $trim;
+                        $cnt++;
+                    }
+                }
+            }
+
+            return $cnt > 0 ? $sum / $cnt : null;
+        };
+
+        $out = [];
+        foreach ($arrays as $field => $values) {
+            // Values for seller__sellerLevel are already numeric via extractGigFieldArrays()
+            // Prices arrive as strings from DB; avg() will cast numeric strings
+            $out[$field] = $avg($values);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Compute score_1, score_2, score_3 for a stats row using avg___ columns.
+     *
+     * Inputs used (from fiverr_listings_stats):
+     * - avg___overview__gig__ordersInQueue
+     * - avg___seo__description__deliveryTime
+     * - avg___seo__schemaMarkup__gigOffers__lowPrice
+     * - avg___overview__gig__rating
+     * - avg___overview__gig__ratingsCount
+     * - avg___seller__sellerLevel
+     * - avg___seller__sellerLevel___adjusted
+     *
+     * Rules:
+     * - score_1 = (ordersInQueue / deliveryTime) * lowPrice
+     *   - Null if any input is null
+     *   - Null if deliveryTime <= 0 (avoid divide-by-zero)
+     * - score_2 = rating * ln(ratingsCount) * (sellerLevelAdjusted^2)
+     *   - Null if any input is null
+     *   - Null if ratingsCount <= 0 (invalid logarithm)
+     * - score_3 = score_1 / score_2
+     *   - Null if score_1 is null or score_2 is null
+     *   - Null if score_2 == 0 (avoid divide-by-zero)
+     *
+     * All numeric-like strings are coerced to float; non-numeric strings are treated as null.
+     */
+    public function computeScoresForStatsRow(array $statsRow): array
+    {
+        $toFloat = static function ($v): ?float {
+            if ($v === null) {
+                return null;
+            }
+            if (is_int($v) || is_float($v)) {
+                return (float) $v;
+            }
+            if (is_bool($v)) {
+                return $v ? 1.0 : 0.0;
+            }
+            if (is_string($v)) {
+                $t = trim($v);
+                if ($t === '' || !is_numeric($t)) {
+                    return null;
+                }
+
+                return (float) $t;
+            }
+
+            return null;
+        };
+
+        $ordersInQueue       = $toFloat($statsRow['avg___overview__gig__ordersInQueue'] ?? null);
+        $deliveryDays        = $toFloat($statsRow['avg___seo__description__deliveryTime'] ?? null);
+        $lowPrice            = $toFloat($statsRow['avg___seo__schemaMarkup__gigOffers__lowPrice'] ?? null);
+        $rating              = $toFloat($statsRow['avg___overview__gig__rating'] ?? null);
+        $ratingsCount        = $toFloat($statsRow['avg___overview__gig__ratingsCount'] ?? null);
+        $sellerLevel         = $toFloat($statsRow['avg___seller__sellerLevel'] ?? null);
+        $sellerLevelAdjusted = $toFloat($statsRow['avg___seller__sellerLevel___adjusted'] ?? null);
+
+        // score_1
+        $score1 = null;
+        if ($ordersInQueue !== null && $deliveryDays !== null && $lowPrice !== null) {
+            if ($deliveryDays > 0.0) {
+                $score1 = ($ordersInQueue / $deliveryDays) * $lowPrice;
+            } else {
+                $score1 = null;
+            }
+        }
+
+        // score_2
+        $score2 = null;
+        if ($rating !== null && $ratingsCount !== null && $sellerLevelAdjusted !== null) {
+            if ($ratingsCount > 0.0) {
+                $score2 = $rating * log($ratingsCount) * ($sellerLevelAdjusted * $sellerLevelAdjusted);
+            } else {
+                $score2 = null;
+            }
+        }
+
+        // score_3
+        $score3 = null;
+        if ($score1 !== null && $score2 !== null && $score2 != 0.0) {
+            $score3 = $score1 / $score2;
+        } else {
+            $score3 = null;
+        }
+
+        return [
+            'score_1' => $score1,
+            'score_2' => $score2,
+            'score_3' => $score3,
+        ];
     }
 }

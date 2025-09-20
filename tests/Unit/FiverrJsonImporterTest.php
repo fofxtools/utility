@@ -11,8 +11,6 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 
-use function FOfX\Utility\ensure_table_exists;
-
 class FiverrJsonImporterTest extends TestCase
 {
     use RefreshDatabase;
@@ -372,7 +370,6 @@ class FiverrJsonImporterTest extends TestCase
     public function test_resetListingsProcessed_clears_flags_and_returns_count(): void
     {
         $importer = new FiverrJsonImporter();
-        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
 
         // Seed two rows directly
         DB::table($importer->getFiverrListingsTable())->insert([
@@ -414,7 +411,6 @@ class FiverrJsonImporterTest extends TestCase
     public function test_resetListingsStatsProcessed_clears_flags_and_returns_count(): void
     {
         $importer = new FiverrJsonImporter();
-        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
 
         // Seed two rows directly
         DB::table($importer->getFiverrListingsTable())->insert([
@@ -653,6 +649,10 @@ class FiverrJsonImporterTest extends TestCase
             ['level_two_seller', 2],
             ['top_rated_seller', 3],
             ['UNKNOWN', 0],
+            ['NEW_SELLER', 0],
+            ['LEVEL_ONE', 1],
+            ['LEVEL_TWO', 2],
+            ['LEVEL_TRS', 3],
         ];
     }
 
@@ -661,6 +661,34 @@ class FiverrJsonImporterTest extends TestCase
     {
         $importer = new FiverrJsonImporter();
         $this->assertSame($expected, $importer->getSellerLevelNumeric($input));
+    }
+
+    public static function provider_getSellerLevelAdjusted(): array
+    {
+        return [
+            // Count-only (rating null)
+            'count-only-none'         => [0, 0,   null, 0],
+            'count-only-l1'           => [0, 5,   null, 1],
+            'count-only-l2'           => [0, 20,  null, 2],
+            'count-only-tr'           => [0, 40,  null, 3],
+            'count-only-max-existing' => [1, 40,  null, 3], // max(1,3) = 3
+            'count-only-no-downgrade' => [2, 5,   null, 2], // inferred 1 but keep 2
+
+            // With rating provided (inclusive thresholds)
+            'rating-l1'                    => [0, 5,   4.4,  1],
+            'rating-l2'                    => [0, 20,  4.6,  2],
+            'rating-tr'                    => [0, 40,  4.7,  3],
+            'rating-high-count-low-rating' => [0, 40, 4.69, 2], // below 4.7 → Level 2
+            'rating-high-rating-low-count' => [0, 39, 4.7,  2], // count<40 → Level 2
+            'max-existing-higher'          => [3, 5,   4.4,  3],    // inferred 1 but keep 3
+        ];
+    }
+
+    #[DataProvider('provider_getSellerLevelAdjusted')]
+    public function test_getSellerLevelAdjusted(int $sellerLevel, int $count, ?float $rating, int $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->assertSame($expected, $importer->getSellerLevelAdjusted($sellerLevel, $count, $rating));
     }
 
     public static function provider_calculateSellerLevelStats(): array
@@ -699,6 +727,77 @@ class FiverrJsonImporterTest extends TestCase
             $this->assertNull($stats['weighted_avg']);
         } else {
             $this->assertEqualsWithDelta($expected['avg'], $stats['weighted_avg'] ?? -1, 1e-9);
+        }
+    }
+
+    public static function provider_calculateSellerLevelAdjustedStats_count_only(): array
+    {
+        $gigs_basic = [
+            ['seller_level' => 'na',                'seller_rating' => ['count' => 0]],    // -> 0
+            ['seller_level' => 'level_one_seller',  'seller_rating' => ['count' => 4]],    // inf 0 -> max(1,0)=1
+            ['seller_level' => 'level_one_seller',  'seller_rating' => ['count' => 5]],    // inf 1 -> 1
+            ['seller_level' => 'level_two_seller',  'seller_rating' => ['count' => 19]],   // inf 1 -> max(2,1)=2
+            ['seller_level' => 'na',                'seller_rating' => ['count' => '20']], // numeric string -> 2
+            ['seller_level' => 'na',                'seller_rating' => ['count' => 39.0]], // float -> 2
+            ['seller_level' => 'na',                'seller_rating' => ['count' => 40]],   // -> 3
+        ];
+
+        return [
+            'empty' => [
+                [],
+                ['values' => [], 'avg' => null],
+            ],
+            'basic-mixed' => [
+                $gigs_basic,
+                ['values' => [0, 1, 1, 2, 2, 2, 3], 'avg' => 11 / 7],
+            ],
+        ];
+    }
+
+    #[DataProvider('provider_calculateSellerLevelAdjustedStats_count_only')]
+    public function test_calculateSellerLevelAdjustedStats_count_only(array $gigs, array $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $result   = $importer->calculateSellerLevelAdjustedStats($gigs);
+
+        $this->assertSame($expected['values'], $result['values']);
+
+        if ($expected['avg'] === null) {
+            $this->assertNull($result['avg']);
+        } else {
+            $this->assertEqualsWithDelta($expected['avg'], (float) $result['avg'], 1e-9);
+        }
+    }
+
+    public static function provider_calculateSellerLevelAdjustedStats_with_ratings(): array
+    {
+        $gigs = [
+            ['seller_level' => 'na',         'seller_rating' => ['count' => 5,    'score' => 4.4]], // ->1
+            ['seller_level' => 'na',         'seller_rating' => ['count' => '20', 'score' => 4.6]], // ->2
+            ['seller_level' => 'na',         'seller_rating' => ['count' => 40.0, 'score' => 4.7]], // ->3
+            ['seller_level' => 'na',         'seller_rating' => ['count' => 40,   'score' => 4.69]], // ->2
+            ['seller_level' => 'na',         'seller_rating' => ['count' => 39,   'score' => 4.7]], // ->2
+            ['seller_level' => 'level_trs',  'seller_rating' => ['count' => 0,    'score' => 0]], // keep 3
+        ];
+
+        return [
+            'with-ratings' => [
+                $gigs,
+                ['values' => [1, 2, 3, 2, 2, 3], 'avg' => 13 / 6],
+            ],
+        ];
+    }
+
+    #[DataProvider('provider_calculateSellerLevelAdjustedStats_with_ratings')]
+    public function test_calculateSellerLevelAdjustedStats_with_ratings(array $gigs, array $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $res      = $importer->calculateSellerLevelAdjustedStats($gigs, true);
+        $this->assertSame($expected['values'], $res['values']);
+        if ($expected['avg'] === null) {
+            $this->assertNull($res['avg']);
+        } else {
+            $this->assertEqualsWithDelta($expected['avg'], (float) $res['avg'], 1e-9);
         }
     }
 
@@ -1125,9 +1224,7 @@ class FiverrJsonImporterTest extends TestCase
         $listing = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', 'DUP1')->first();
         $this->assertNotNull($listing);
 
-        // Ensure stats table exists and insert a pre-existing stats row for this listing
-        ensure_table_exists($importer->getFiverrListingsStatsTable(), $importer->getFiverrListingsStatsMigrationPath());
-
+        // Insert a pre-existing stats row for this listing
         DB::table($importer->getFiverrListingsStatsTable())->insert([
             'fiverr_listings_row_id' => $listing->id,
             'created_at'             => now(),
@@ -1238,9 +1335,8 @@ class FiverrJsonImporterTest extends TestCase
     public function test_getAllListingsData_skips_malformed_json(): void
     {
         $importer = new FiverrJsonImporter();
-        // Ensure table exists and seed bad JSON row directly
-        ensure_table_exists($importer->getFiverrListingsTable(), $importer->getFiverrListingsMigrationPath());
 
+        // Seed one row with invalid JSON
         DB::table($importer->getFiverrListingsTable())->insert([
             'listingAttributes__id' => 'BAD1',
             'listings'              => '{invalid-json',
@@ -1339,5 +1435,352 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
         $this->expectException(\InvalidArgumentException::class);
         $importer->getGigIdToListingIdMapBetweenPositions(10, 5, useRedis: false);
+    }
+
+    public static function provider_parseDeliveryTimeDays(): array
+    {
+        return [
+            [null, null],
+            ['', null],
+            [' ', null],
+            ['1 day', 1],
+            ['3 days', 3],
+            [' 12 days ', 12],
+            ['0 day', 0],
+            ['same day', null],
+            ['10', 10],
+        ];
+    }
+
+    #[DataProvider('provider_parseDeliveryTimeDays')]
+    public function test_parseDeliveryTimeDays(?string $input, ?int $expected): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->assertSame($expected, $importer->parseDeliveryTimeDays($input));
+    }
+
+    public function test_extractGigFieldArrays_orders_by_input_and_maps_seller_level(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed two gigs with distinct values
+        DB::table($importer->getFiverrGigsTable())->insert([
+            [
+                'general__gigId'                          => 7001,
+                'sellerCard__memberSince'                 => 1111111111,
+                'sellerCard__responseTime'                => 2,
+                'sellerCard__recentDelivery'              => 1700000000000,
+                'overview__gig__rating'                   => 4.8,
+                'overview__gig__ratingsCount'             => 120,
+                'overview__gig__ordersInQueue'            => 1,
+                'topNav__gigCollectedCount'               => 10,
+                'portfolio__projectsCount'                => 2,
+                'seo__description__deliveryTime'          => '1 day',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '25.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '60.00',
+                'seller__user__joinedAt'                  => 1600000000,
+                'seller__sellerLevel'                     => 'level_one',
+                'seller__isPro'                           => false,
+                'seller__rating__count'                   => 5,
+                'seller__rating__score'                   => 4.6,
+                'seller__responseTime__inHours'           => 3,
+                'seller__completedOrdersCount'            => 100,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+            [
+                'general__gigId'                          => 7002,
+                'sellerCard__memberSince'                 => 2222222222,
+                'sellerCard__responseTime'                => 4,
+                'sellerCard__recentDelivery'              => 1710000000000,
+                'overview__gig__rating'                   => 5.0,
+                'overview__gig__ratingsCount'             => 240,
+                'overview__gig__ordersInQueue'            => 0,
+                'topNav__gigCollectedCount'               => 20,
+                'portfolio__projectsCount'                => 4,
+                'seo__description__deliveryTime'          => '3 days',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '15.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '90.00',
+                'seller__user__joinedAt'                  => 1500000000,
+                'seller__sellerLevel'                     => 'level_two',
+                'seller__isPro'                           => true,
+                'seller__rating__count'                   => 7,
+                'seller__rating__score'                   => 4.9,
+                'seller__responseTime__inHours'           => 1,
+                'seller__completedOrdersCount'            => 200,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+        ]);
+
+        // Provide input with duplicates and out-of-order, plus an invalid id
+        $gigIds = [7002, 7001, 7002, 0];
+
+        $arrays = $importer->extractGigFieldArrays($gigIds);
+
+        // Order should be [7002, 7001] after deduplication; check every field accordingly
+        $expected = [
+            'sellerCard__memberSince'                 => [2222222222, 1111111111],
+            'sellerCard__responseTime'                => [4, 2],
+            'sellerCard__recentDelivery'              => [1710000000000, 1700000000000],
+            'overview__gig__rating'                   => [5.0, 4.8],
+            'overview__gig__ratingsCount'             => [240, 120],
+            'overview__gig__ordersInQueue'            => [0, 1],
+            'topNav__gigCollectedCount'               => [20, 10],
+            'portfolio__projectsCount'                => [4, 2],
+            'seo__description__deliveryTime'          => [3, 1],
+            'seo__schemaMarkup__gigOffers__lowPrice'  => ['15.00', '25.00'],
+            'seo__schemaMarkup__gigOffers__highPrice' => ['90.00', '60.00'],
+            'seller__user__joinedAt'                  => [1500000000, 1600000000],
+            'seller__sellerLevel'                     => [2, 1],
+            'seller__isPro'                           => [1, 0],
+            'seller__rating__count'                   => [7, 5],
+            'seller__rating__score'                   => [4.9, 4.6],
+            'seller__responseTime__inHours'           => [1, 3],
+            'seller__completedOrdersCount'            => [200, 100],
+            'seller__sellerLevel___adjusted'          => [3, 3],
+        ];
+
+        $fields = array_keys($expected);
+
+        // Ensure all expected fields exist in correct order
+        $this->assertSame($fields, array_keys($arrays));
+
+        foreach ($fields as $f) {
+            $this->assertArrayHasKey($f, $arrays);
+            $this->assertSame($expected[$f], $arrays[$f]);
+        }
+    }
+
+    public function test_extractGigFieldArrays_empty_and_missing_ids_return_empty_arrays(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $fields = [
+            'sellerCard__memberSince',
+            'sellerCard__responseTime',
+            'sellerCard__recentDelivery',
+            'overview__gig__rating',
+            'overview__gig__ratingsCount',
+            'overview__gig__ordersInQueue',
+            'topNav__gigCollectedCount',
+            'portfolio__projectsCount',
+            'seo__description__deliveryTime',
+            'seo__schemaMarkup__gigOffers__lowPrice',
+            'seo__schemaMarkup__gigOffers__highPrice',
+            'seller__user__joinedAt',
+            'seller__sellerLevel',
+            'seller__isPro',
+            'seller__rating__count',
+            'seller__rating__score',
+            'seller__responseTime__inHours',
+            'seller__completedOrdersCount',
+            'seller__sellerLevel___adjusted',
+        ];
+
+        // Empty input
+        $empty = $importer->extractGigFieldArrays([]);
+        $this->assertSame($fields, array_keys($empty));
+        foreach ($fields as $k) {
+            $this->assertSame([], $empty[$k]);
+        }
+
+        // Non-existing id -> arrays remain empty
+        $miss = $importer->extractGigFieldArrays([99999999]);
+        $this->assertSame($fields, array_keys($miss));
+        foreach ($fields as $k) {
+            $this->assertSame([], $miss[$k]);
+        }
+    }
+
+    public function test_computeListingGigFieldAverages_basic(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $listingId = 'L-AVG-1';
+
+        // Seed two gigs
+        DB::table($importer->getFiverrGigsTable())->insert([
+            [
+                'general__gigId'                          => 8101,
+                'sellerCard__memberSince'                 => 111,
+                'sellerCard__responseTime'                => 2,
+                'sellerCard__recentDelivery'              => 1700000000000,
+                'overview__gig__rating'                   => 4.6,
+                'overview__gig__ratingsCount'             => 10,
+                'overview__gig__ordersInQueue'            => 2,
+                'topNav__gigCollectedCount'               => 1,
+                'portfolio__projectsCount'                => 1,
+                'seo__description__deliveryTime'          => '1 day',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '20.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '50.00',
+                'seller__user__joinedAt'                  => 1500000000,
+                'seller__sellerLevel'                     => 'level_one',
+                'seller__isPro'                           => false,
+                'seller__rating__count'                   => 5,
+                'seller__rating__score'                   => 4.5,
+                'seller__responseTime__inHours'           => 3,
+                'seller__completedOrdersCount'            => 100,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+            [
+                'general__gigId'                          => 8102,
+                'sellerCard__memberSince'                 => 222,
+                'sellerCard__responseTime'                => 4,
+                'sellerCard__recentDelivery'              => 1710000000000,
+                'overview__gig__rating'                   => 4.9,
+                'overview__gig__ratingsCount'             => 20,
+                'overview__gig__ordersInQueue'            => 0,
+                'topNav__gigCollectedCount'               => 2,
+                'portfolio__projectsCount'                => 2,
+                'seo__description__deliveryTime'          => '3 days',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '100.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '200.00',
+                'seller__user__joinedAt'                  => 1600000000,
+                'seller__sellerLevel'                     => 'level_two',
+                'seller__isPro'                           => true,
+                'seller__rating__count'                   => 7,
+                'seller__rating__score'                   => 4.9,
+                'seller__responseTime__inHours'           => 1,
+                'seller__completedOrdersCount'            => 200,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+        ]);
+
+        // Seed listings JSON: two gigs with pos 0 and 1
+        $listingsPayload = json_encode([
+            [
+                'gigs' => [
+                    ['gigId' => 8101, 'pos' => 0],
+                    ['gigId' => 8102, 'pos' => 1],
+                ],
+            ],
+        ]);
+
+        DB::table($importer->getFiverrListingsTable())->insert([
+            'listingAttributes__id' => $listingId,
+            'listings'              => $listingsPayload,
+            'created_at'            => now(),
+            'updated_at'            => now(),
+        ]);
+
+        // Compute averages without Redis to ensure fresh read
+        $avg = $importer->computeListingGigFieldAverages($listingId, 0, 7, useRedis: false);
+
+        // Check all averages
+        $expected = [
+            'sellerCard__memberSince'                 => 166.5,
+            'sellerCard__responseTime'                => 3.0,
+            'sellerCard__recentDelivery'              => 1705000000000.0,
+            'overview__gig__rating'                   => 4.75,
+            'overview__gig__ratingsCount'             => 15.0,
+            'overview__gig__ordersInQueue'            => 1.0,
+            'topNav__gigCollectedCount'               => 1.5,
+            'portfolio__projectsCount'                => 1.5,
+            'seo__description__deliveryTime'          => 2.0,
+            'seo__schemaMarkup__gigOffers__lowPrice'  => 60.0,
+            'seo__schemaMarkup__gigOffers__highPrice' => 125.0,
+            'seller__user__joinedAt'                  => 1550000000.0,
+            'seller__sellerLevel'                     => 1.5,
+            'seller__isPro'                           => 0.5,
+            'seller__rating__count'                   => 6.0,
+            'seller__rating__score'                   => 4.7,
+            'seller__responseTime__inHours'           => 2.0,
+            'seller__completedOrdersCount'            => 150.0,
+            'seller__sellerLevel___adjusted'          => 3.0,
+        ];
+
+        $this->assertSame(array_keys($expected), array_keys($avg));
+        foreach ($expected as $k => $v) {
+            $this->assertSame($v, $avg[$k]);
+        }
+    }
+
+    public function test_computeScoresForStatsRow_happy_path(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel'                    => 1, // should be ignored by score_2
+            'avg___seller__sellerLevel___adjusted'         => 2,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $expectedScore1 = (10.0 / 2.0) * 100.0; // 500.0
+        $expectedScore2 = 4.8 * log(100) * (2 * 2);
+        $expectedScore3 = $expectedScore1 / $expectedScore2;
+
+        $this->assertSame($expectedScore1, $scores['score_1']);
+        $this->assertSame($expectedScore2, $scores['score_2']);
+        $this->assertSame($expectedScore3, $scores['score_3']);
+    }
+
+    public function test_computeScoresForStatsRow_score1_null_when_delivery_days_invalid(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 0, // invalid
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel___adjusted'         => 2,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $this->assertNull($scores['score_1']);
+        // score_2 should still compute
+        $this->assertSame(4.8 * log(100) * (2 * 2), $scores['score_2']);
+        $this->assertNull($scores['score_3']); // since score_1 is null
+    }
+
+    public function test_computeScoresForStatsRow_score2_null_on_invalid_ratingsCount(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 0, // invalid for log
+            'avg___seller__sellerLevel___adjusted'         => 2,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
+        $this->assertNull($scores['score_2']);
+        $this->assertNull($scores['score_3']);
+    }
+
+    public function test_computeScoresForStatsRow_score3_null_when_score2_zero_due_to_zero_levelAdjusted(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel___adjusted'         => 0, // forces score_2 = 0
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
+        $this->assertSame(0.0, $scores['score_2']);
+        $this->assertNull($scores['score_3']);
     }
 }

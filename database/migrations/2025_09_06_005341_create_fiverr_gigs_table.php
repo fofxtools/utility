@@ -147,7 +147,7 @@ return new class () extends Migration {
             $table->string('openGraph__title')->nullable();
             $table->integer('openGraph__price')->nullable();
             $table->text('openGraph__image')->nullable();
-            $table->string('openGraph__video')->nullable();
+            $table->text('openGraph__video')->nullable();
 
             // Additional fields
             $table->text('choiceEligibilities')->nullable();
@@ -212,11 +212,11 @@ return new class () extends Migration {
             $table->text('seller__certifications')->nullable();
             $table->text('seller__activeEducations')->nullable();
             $table->boolean('seller__isOnVacation')->nullable();
-            $table->string('seller__vacation')->nullable();
+            $table->text('seller__vacation')->nullable();
             $table->integer('seller__portfolios__totalCount')->nullable();
             $table->text('seller__portfolios__portfolioProjects')->nullable();
-            $table->string('seller__agency')->nullable();
-            $table->string('seller__hourlyRate')->nullable();
+            $table->text('seller__agency')->nullable();
+            $table->integer('seller__hourlyRate__priceInCents')->nullable();
             $table->text('seller__regionalGroupRestrictions')->nullable();
             $table->boolean('seller__hasLoyaltyScores')->nullable();
             $table->boolean('seller__isActive')->nullable();

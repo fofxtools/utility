@@ -57,12 +57,12 @@ return new class () extends Migration {
             $table->integer('seller__rating__score')->nullable();
             $table->integer('seller__rating__count')->nullable();
             $table->boolean('seller__isOnVacation')->nullable();
-            $table->string('seller__vacation')->nullable();
+            $table->text('seller__vacation')->nullable();
             $table->string('seller__achievementLevel')->nullable();
             $table->string('seller__sellerLevel')->nullable();
             $table->integer('seller__responseTime__inHours')->nullable();
             $table->text('seller__testimonials')->nullable();
-            $table->string('seller__agency')->nullable();
+            $table->text('seller__agency')->nullable();
 
             // Currency fields
             $table->string('currency__name')->nullable();

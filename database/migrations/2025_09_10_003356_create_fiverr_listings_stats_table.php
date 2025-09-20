@@ -15,6 +15,16 @@ return new class () extends Migration {
 
             $table->string('listingAttributes__id')->nullable();
 
+            // Category information
+            $table->string('categoryIds__categoryId')->nullable();
+            $table->string('categoryIds__subCategoryId')->nullable();
+            $table->string('categoryIds__nestedSubCategoryId')->nullable();
+            $table->string('displayData__categoryName')->nullable();
+            $table->string('displayData__subCategoryName')->nullable();
+            $table->string('displayData__nestedSubCategoryName')->nullable();
+            $table->string('displayData__cachedSlug')->nullable();
+            $table->string('displayData__name')->nullable();
+
             $table->float('currency__rate')->nullable();
 
             $table->boolean('rawListingData__has_more')->nullable();
@@ -110,6 +120,53 @@ return new class () extends Migration {
             $table->integer('tracking__promotedGigsCount')->nullable();
             $table->boolean('tracking__searchAutoComplete__is_autocomplete')->nullable();
 
+            // JSON of gigs
+            $table->json('json___sellerCard__memberSince')->nullable();
+            $table->json('json___sellerCard__responseTime')->nullable();
+            $table->json('json___sellerCard__recentDelivery')->nullable();
+            $table->json('json___overview__gig__rating')->nullable();
+            $table->json('json___overview__gig__ratingsCount')->nullable();
+            $table->json('json___overview__gig__ordersInQueue')->nullable();
+            $table->json('json___topNav__gigCollectedCount')->nullable();
+            $table->json('json___portfolio__projectsCount')->nullable();
+            $table->json('json___seo__description__deliveryTime')->nullable();
+            $table->json('json___seo__schemaMarkup__gigOffers__lowPrice')->nullable();
+            $table->json('json___seo__schemaMarkup__gigOffers__highPrice')->nullable();
+            $table->json('json___seller__user__joinedAt')->nullable();
+            $table->json('json___seller__sellerLevel')->nullable();
+            $table->json('json___seller__sellerLevel___adjusted')->nullable();
+            $table->json('json___seller__isPro')->nullable();
+            $table->json('json___seller__rating__count')->nullable();
+            $table->json('json___seller__rating__score')->nullable();
+            $table->json('json___seller__responseTime__inHours')->nullable();
+            $table->json('json___seller__completedOrdersCount')->nullable();
+
+            // Averages of gigs
+            $table->float('avg___sellerCard__memberSince')->nullable();
+            $table->float('avg___sellerCard__responseTime')->nullable();
+            $table->float('avg___sellerCard__recentDelivery')->nullable();
+            $table->float('avg___overview__gig__rating')->nullable();
+            $table->float('avg___overview__gig__ratingsCount')->nullable();
+            $table->float('avg___overview__gig__ordersInQueue')->nullable();
+            $table->float('avg___topNav__gigCollectedCount')->nullable();
+            $table->float('avg___portfolio__projectsCount')->nullable();
+            $table->float('avg___seo__description__deliveryTime')->nullable();
+            $table->float('avg___seo__schemaMarkup__gigOffers__lowPrice')->nullable();
+            $table->float('avg___seo__schemaMarkup__gigOffers__highPrice')->nullable();
+            $table->float('avg___seller__user__joinedAt')->nullable();
+            $table->float('avg___seller__sellerLevel')->nullable();
+            $table->float('avg___seller__sellerLevel___adjusted')->nullable();
+            $table->float('avg___seller__isPro')->nullable();
+            $table->float('avg___seller__rating__count')->nullable();
+            $table->float('avg___seller__rating__score')->nullable();
+            $table->float('avg___seller__responseTime__inHours')->nullable();
+            $table->float('avg___seller__completedOrdersCount')->nullable();
+
+            // Computed scores
+            $table->float('score_1')->nullable();
+            $table->float('score_2')->nullable();
+            $table->float('score_3')->nullable();
+
             // Standard Laravel timestamps
             $table->timestamps();
 
@@ -156,6 +213,30 @@ return new class () extends Migration {
             $table->index('priceBucketsSkeleton___2___max', 'idx_fls_priceBucketsSkeleton___2___max');
 
             $table->index('tracking__promotedGigsCount', 'idx_fls_tracking__promotedGigsCount');
+
+            $table->index('avg___sellerCard__memberSince', 'idx_fls_avg___sellerCard__memberSince');
+            $table->index('avg___sellerCard__responseTime', 'idx_fls_avg___sellerCard__responseTime');
+            $table->index('avg___sellerCard__recentDelivery', 'idx_fls_avg___sellerCard__recentDelivery');
+            $table->index('avg___overview__gig__rating', 'idx_fls_avg___overview__gig__rating');
+            $table->index('avg___overview__gig__ratingsCount', 'idx_fls_avg___overview__gig__ratingsCount');
+            $table->index('avg___overview__gig__ordersInQueue', 'idx_fls_avg___overview__gig__ordersInQueue');
+            $table->index('avg___topNav__gigCollectedCount', 'idx_fls_avg___topNav__gigCollectedCount');
+            $table->index('avg___portfolio__projectsCount', 'idx_fls_avg___portfolio__projectsCount');
+            $table->index('avg___seo__description__deliveryTime', 'idx_fls_avg___seo__description__deliveryTime');
+            $table->index('avg___seo__schemaMarkup__gigOffers__lowPrice', 'idx_fls_avg___seo__schemaMarkup__gigOffers__lowPrice');
+            $table->index('avg___seo__schemaMarkup__gigOffers__highPrice', 'idx_fls_avg___seo__schemaMarkup__gigOffers__highPrice');
+            $table->index('avg___seller__user__joinedAt', 'idx_fls_avg___seller__user__joinedAt');
+            $table->index('avg___seller__sellerLevel', 'idx_fls_avg___seller__sellerLevel');
+            $table->index('avg___seller__sellerLevel___adjusted', 'idx_fls_avg___seller__sellerLevel___adjusted');
+            $table->index('avg___seller__isPro', 'idx_fls_avg___seller__isPro');
+            $table->index('avg___seller__rating__count', 'idx_fls_avg___seller__rating__count');
+            $table->index('avg___seller__rating__score', 'idx_fls_avg___seller__rating__score');
+            $table->index('avg___seller__responseTime__inHours', 'idx_fls_avg___seller__responseTime__inHours');
+            $table->index('avg___seller__completedOrdersCount', 'idx_fls_avg___seller__completedOrdersCount');
+
+            $table->index('score_1', 'idx_fls_score_1');
+            $table->index('score_2', 'idx_fls_score_2');
+            $table->index('score_3', 'idx_fls_score_3');
 
             $table->index('processed_at', 'idx_fls_processed_at');
         });

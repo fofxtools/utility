@@ -57,6 +57,7 @@ print_r($stats);
 // Process listings into stats
 // Note: To re-process all, call $importer->resetListingsStatsProcessed() first.
 echo "\n== Process fiverr_listings_stats from listings JSON ==\n";
+//$importer->resetListingsStatsProcessed();
 $stats = $importer->processListingsStatsAll();
 print_r($stats);
 

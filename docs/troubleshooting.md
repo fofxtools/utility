@@ -28,7 +28,7 @@ This document tracks various issues encountered during development and their sol
 #### JSON_BIGINT_AS_STRING Ampersand Escaping Issue (8-31-2025)
 - **Issue**: The `save_json_blocks_to_file()` function was escaping ampersand characters (`&`) as `\u0026` in JSON output, even when using `JSON_UNESCAPED_UNICODE` flag.
 - **Root Cause**: `JSON_BIGINT_AS_STRING` and `JSON_HEX_AMP` both have the same numeric value (2) in PHP. Using `JSON_BIGINT_AS_STRING` in `json_encode()` accidentally enabled `JSON_HEX_AMP`, causing ampersands to be escaped.
-- **Discovery Process**: 
+- **Discovery Process**:
   1. Created debug script (`/tmp/debug_json_flags.php`) to test various flag combinations
   2. Found that any combination including `JSON_BIGINT_AS_STRING` caused `&` → `\u0026` escaping
   3. Research revealed the flag value conflict: both constants have value 2
@@ -50,7 +50,7 @@ This document tracks various issues encountered during development and their sol
 #### MySQL Identifier Length Limit with fiverr_seller_profiles Migration (9-06-2025)
 - **Issue**: Column names exceeded MySQL's 64-character identifier limit during `fiverr_seller_profiles` table creation.
 - **Root Cause**: Some nested field paths with `__` delimiters created column names longer than MySQL's maximum identifier length of 64 characters.
-- **Problematic Fields Removed**: 
+- **Problematic Fields Removed**:
   - `reviewsData__buying_reviews__filters_counters__most_common_industries` (69 chars)
   - `reviewsData__buying_reviews__star_summary` (child field: `communication_valuation` at 66 chars)
   - `reviewsData__buying_reviews__dynamicTranslations` (child field: `beauty_and_cosmetics` at 70 chars)
@@ -67,3 +67,18 @@ This document tracks various issues encountered during development and their sol
 - **MVP Compromise**: Used `listingAttributes.id` as the unique constraint despite its seeming session-dependent nature. This prevents importing the same already-downloaded page twice during a single scraping session.
 - **Assumption**: For MVP purposes, each URL will only be downloaded once, making the session-dependency acceptable.
 - **Alternative Approaches Considered**: Context-aware hash (`MD5(CASE WHEN listingQuery != '' THEN CONCAT('SEARCH:', listingQuery, '|', activeFilters) ELSE CONCAT('CATEGORY:', categoryIds__categoryId, ':', categoryIds__subCategoryId, ':', categoryIds__nestedSubCategoryId, '|', activeFilters) END)`) and content-based hash (`MD5(CONCAT(listingQuery, categoryIds__categoryId, categoryIds__subCategoryId, categoryIds__nestedSubCategoryId, activeFilters))`) approaches were explored but deemed over-engineered for MVP requirements.
+
+#### "Array to string conversion" when importing gigs (9-17-2025)
+- Context: Calling FiverrJsonImporter::importGigJson() produced intermittent warnings like:
+  - Warning: Array to string conversion in vendor/laravel/framework/src/Illuminate/Database/Connection.php on line 726
+- Root cause: Some fiverr_gigs (and fiverr_seller_profiles) columns were defined as string (VARCHAR), but the importer sometimes provided array values for those fields. Laravel tried to bind arrays as scalars, triggering the warning. Our extractAndEncode() only JSON-encodes arrays/objects for TEXT-like columns; VARCHAR columns receive the raw value.
+- Debug aid (temporary): Added a guard in vendor bindValues() to log bindings when they were arrays:
+  - if (is_array($value)) { Log::warning('Array binding detected', ['key' => $key, 'value' => $value]); }
+  - Note: Vendor edit used only for short-term debugging.
+- Fixes applied:
+  - Replaced seller__hourlyRate: switched string(seller__hourlyRate) with integer(seller__hourlyRate__priceInCents).
+  - Changed these columns from string → text so arrays/objects can be JSON-encoded safely:
+    - In fiverr_gigs: seller__agency, seller__vacation, openGraph__video (URL; not observed failing yet but safer as TEXT)
+    - In fiverr_seller_profiles: seller__agency, seller__vacation
+- Intermittent nature: seller__hourlyRate was often null, so the warning only surfaced on rows where it had a non-null array/structure.
+- Reminder: ensure_table_exists() only creates tables if missing. To apply type changes on an existing DB, run an ALTER TABLE (or drop/recreate in dev).
