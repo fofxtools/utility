@@ -61,6 +61,13 @@ echo "\n== Process fiverr_listings_stats from listings JSON ==\n";
 $stats = $importer->processListingsStatsAll();
 print_r($stats);
 
+// Process gigs into stats
+// Note: To re-process all, call $importer->resetListingsGigsStatsProcessed() first.
+echo "\n== Process fiverr_listings_stats from gigs JSON ==\n";
+//$importer->resetListingsGigsStatsProcessed();
+$stats = $importer->processGigsStatsAll();
+print_r($stats);
+
 echo "\n== Test getAllListingsData ==\n";
 $map      = $importer->getAllListingsData();
 $slice    = array_slice($map, 0, 3);

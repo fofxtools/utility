@@ -476,8 +476,17 @@ function extract_values_by_paths(array $data, array $paths, string $delimiter = 
  */
 function ensure_table_exists(string $tableName, string $migrationFilename): void
 {
+    // Only run once per script execution
+    static $executed = [];
+    $key             = md5(serialize([$tableName, $migrationFilename]));
+
+    if (isset($executed[$key])) {
+        return;
+    }
+
     if (Schema::hasTable($tableName)) {
         Log::debug('Table already exists', ['table' => $tableName]);
+        $executed[$key] = true;
 
         return;
     }
@@ -489,4 +498,6 @@ function ensure_table_exists(string $tableName, string $migrationFilename): void
     $migration = require $migrationFilename;
     $migration->up();
     Log::debug('Created missing table', ['table' => $tableName, 'migration_filename' => $migrationFilename]);
+
+    $executed[$key] = true;
 }

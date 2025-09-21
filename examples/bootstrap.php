@@ -9,6 +9,8 @@ use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Events\EventServiceProvider;
 use Illuminate\Database\DatabaseServiceProvider;
 use Illuminate\Filesystem\FilesystemServiceProvider;
+use Illuminate\Cache\CacheServiceProvider;
+use Illuminate\Redis\RedisServiceProvider;
 
 // Create the application container
 $app = new Application(
@@ -30,6 +32,8 @@ Facade::setFacadeApplication($app);
 $app->register(EventServiceProvider::class);
 $app->register(DatabaseServiceProvider::class);
 $app->register(FilesystemServiceProvider::class);
+$app->register(CacheServiceProvider::class);
+$app->register(RedisServiceProvider::class);
 
 // Set up basic paths
 $app->useStoragePath($app->basePath('storage'));

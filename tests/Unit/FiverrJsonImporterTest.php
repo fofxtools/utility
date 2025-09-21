@@ -449,6 +449,85 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame(0, $updated);
     }
 
+    public function test_resetListingsGigsStatsProcessed_clears_flags_and_returns_count(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        DB::table($importer->getFiverrListingsTable())->insert([
+            [
+                'listingAttributes__id'       => 'L1',
+                'gigs_stats_processed_at'     => now(),
+                'gigs_stats_processed_status' => json_encode(['x' => 1]),
+                'created_at'                  => now(),
+                'updated_at'                  => now(),
+            ],
+            [
+                'listingAttributes__id'       => 'L2',
+                'gigs_stats_processed_at'     => now(),
+                'gigs_stats_processed_status' => json_encode(['y' => 2]),
+                'created_at'                  => now(),
+                'updated_at'                  => now(),
+            ],
+        ]);
+
+        $updated = $importer->resetListingsGigsStatsProcessed();
+        $this->assertSame(2, $updated);
+
+        $rows = DB::table($importer->getFiverrListingsTable())->orderBy('listingAttributes__id')->get();
+        $this->assertCount(2, $rows);
+        foreach ($rows as $r) {
+            $this->assertNull($r->gigs_stats_processed_at);
+            $this->assertNull($r->gigs_stats_processed_status);
+        }
+    }
+
+    public function test_resetListingsGigsStatsProcessed_when_no_rows_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $updated  = $importer->resetListingsGigsStatsProcessed();
+        $this->assertSame(0, $updated);
+    }
+
+    public function test_resetGigsProcessed_clears_flags_and_returns_count(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Seed two gigs
+        DB::table($importer->getFiverrGigsTable())->insert([
+            [
+                'general__gigId'   => 1001,
+                'processed_at'     => now(),
+                'processed_status' => json_encode(['a' => 1]),
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ],
+            [
+                'general__gigId'   => 1002,
+                'processed_at'     => now(),
+                'processed_status' => json_encode(['b' => 2]),
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ],
+        ]);
+
+        $updated = $importer->resetGigsProcessed();
+        $this->assertSame(2, $updated);
+
+        $rows = DB::table($importer->getFiverrGigsTable())->orderBy('general__gigId')->get();
+        $this->assertCount(2, $rows);
+        foreach ($rows as $r) {
+            $this->assertNull($r->processed_at);
+            $this->assertNull($r->processed_status);
+        }
+    }
+
+    public function test_resetGigsProcessed_when_no_rows_returns_zero(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $updated  = $importer->resetGigsProcessed();
+        $this->assertSame(0, $updated);
+    }
+
     public function test_processListingsGigsBatch_processes_at_most_batch_size_and_marks_processed(): void
     {
         $importer = new FiverrJsonImporter();
@@ -1321,7 +1400,7 @@ class FiverrJsonImporterTest extends TestCase
             }
         }
 
-        $map = $importer->getAllListingsData(useRedis: false);
+        $map = $importer->getAllListingsData(useCache: false);
 
         $this->assertArrayHasKey('L1', $map);
         $this->assertArrayHasKey('L2', $map);
@@ -1344,8 +1423,49 @@ class FiverrJsonImporterTest extends TestCase
             'updated_at'            => now(),
         ]);
 
-        $map = $importer->getAllListingsData(useRedis: false);
+        $map = $importer->getAllListingsData(useCache: false);
         $this->assertArrayNotHasKey('BAD1', $map); // BAD1 should not be present
+    }
+
+    public function test_getListingToGigPositionsMap_builds_sorted_map(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $payload1 = [
+            'listingAttributes' => ['id' => 'LM1'],
+            'listings'          => [[
+                'gigs' => [
+                    ['gigId' => 5102, 'pos' => 7],
+                    ['gigId' => 5101, 'pos' => 0],
+                ],
+            ]],
+        ];
+        $payload2 = [
+            'listingAttributes' => ['id' => 'LM2'],
+            'listings'          => [[
+                'gigs' => [
+                    ['gigId' => 6201, 'pos' => 3],
+                ],
+            ]],
+        ];
+
+        foreach ([$payload1, $payload2] as $p) {
+            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
+            file_put_contents($json, json_encode($p));
+
+            try {
+                $importer->importListingsJson($json);
+            } finally {
+                unlink($json);
+            }
+        }
+
+        $map = $importer->getListingToGigPositionsMap(useCache: false);
+
+        $this->assertArrayHasKey('LM1', $map);
+        $this->assertArrayHasKey('LM2', $map);
+        $this->assertSame([0 => 5101, 7 => 5102], $map['LM1']);
+        $this->assertSame([3 => 6201], $map['LM2']);
     }
 
     public function test_getGigIdToListingIdMapBetweenPositions_filters_and_maps(): void
@@ -1379,12 +1499,12 @@ class FiverrJsonImporterTest extends TestCase
             }
         }
 
-        $map = $importer->getGigIdToListingIdMapBetweenPositions(0, 7, useRedis: false);
+        $map = $importer->getGigIdToListingIdMapBetweenPositions(0, 7, useCache: false);
 
-        // Should include 1101=>GL1, 2201=>GL2, and 1102=>GL2 (only qualifies in GL2)
-        $this->assertSame('GL1', $map[1101]);
-        $this->assertSame('GL2', $map[2201]);
-        $this->assertSame('GL2', $map[1102]);
+        // Should include 1101=>['GL1'=>0], 2201=>['GL2'=>5], and 1102=>['GL2'=>7]
+        $this->assertSame(['GL1' => 0], $map[1101]);
+        $this->assertSame(['GL2' => 5], $map[2201]);
+        $this->assertSame(['GL2' => 7], $map[1102]);
     }
 
     public function test_getGigIdToListingIdMapBetweenPositions_range_10_15(): void
@@ -1422,10 +1542,12 @@ class FiverrJsonImporterTest extends TestCase
             }
         }
 
-        $map = $importer->getGigIdToListingIdMapBetweenPositions(10, 15, useRedis: false);
+        $map = $importer->getGigIdToListingIdMapBetweenPositions(10, 15, useCache: false);
 
-        $this->assertSame('GL3', $map[3101]);
-        $this->assertSame('GL3', $map[3102]); // first match wins
+        $this->assertSame(['GL3' => 10], $map[3101]);
+        $this->assertArrayHasKey(3102, $map);
+        $this->assertSame(15, $map[3102]['GL3']);
+        $this->assertSame(12, $map[3102]['GL4']);
         $this->assertArrayNotHasKey(3103, $map); // below range
         $this->assertArrayNotHasKey(3201, $map); // above range
     }
@@ -1434,7 +1556,7 @@ class FiverrJsonImporterTest extends TestCase
     {
         $importer = new FiverrJsonImporter();
         $this->expectException(\InvalidArgumentException::class);
-        $importer->getGigIdToListingIdMapBetweenPositions(10, 5, useRedis: false);
+        $importer->getGigIdToListingIdMapBetweenPositions(10, 5, useCache: false);
     }
 
     public static function provider_parseDeliveryTimeDays(): array
@@ -1666,8 +1788,8 @@ class FiverrJsonImporterTest extends TestCase
             'updated_at'            => now(),
         ]);
 
-        // Compute averages without Redis to ensure fresh read
-        $avg = $importer->computeListingGigFieldAverages($listingId, 0, 7, useRedis: false);
+        // Compute averages without Cache to ensure fresh read
+        $avg = $importer->computeListingGigFieldAverages($listingId, 0, 7, useCache: false);
 
         // Check all averages
         $expected = [
@@ -1782,5 +1904,469 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
         $this->assertSame(0.0, $scores['score_2']);
         $this->assertNull($scores['score_3']);
+    }
+
+    public function test_processGigsStatsBatch_updates_stats_for_listing_with_in_range_gigs(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $listingId = 'UT_L1';
+
+        // Seed gigs (two gigs)
+        DB::table($importer->getFiverrGigsTable())->insert([
+            [
+                'general__gigId'                          => 91001,
+                'sellerCard__memberSince'                 => 100,
+                'sellerCard__responseTime'                => 2,
+                'sellerCard__recentDelivery'              => 1700000000000,
+                'overview__gig__rating'                   => 4.5,
+                'overview__gig__ratingsCount'             => 10,
+                'overview__gig__ordersInQueue'            => 2,
+                'topNav__gigCollectedCount'               => 1,
+                'portfolio__projectsCount'                => 2,
+                'seo__description__deliveryTime'          => '1 day',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '50.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '100.00',
+                'seller__user__joinedAt'                  => 1500000000,
+                'seller__sellerLevel'                     => 'level_one',
+                'seller__isPro'                           => false,
+                'seller__rating__count'                   => 5,
+                'seller__rating__score'                   => 4.5,
+                'seller__responseTime__inHours'           => 3,
+                'seller__completedOrdersCount'            => 100,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+            [
+                'general__gigId'                          => 91002,
+                'sellerCard__memberSince'                 => 233,
+                'sellerCard__responseTime'                => 4,
+                'sellerCard__recentDelivery'              => 1710000000000,
+                'overview__gig__rating'                   => 5.0,
+                'overview__gig__ratingsCount'             => 20,
+                'overview__gig__ordersInQueue'            => 0,
+                'topNav__gigCollectedCount'               => 2,
+                'portfolio__projectsCount'                => 1,
+                'seo__description__deliveryTime'          => '3 days',
+                'seo__schemaMarkup__gigOffers__lowPrice'  => '70.00',
+                'seo__schemaMarkup__gigOffers__highPrice' => '150.00',
+                'seller__user__joinedAt'                  => 1600000000,
+                'seller__sellerLevel'                     => 'level_two',
+                'seller__isPro'                           => true,
+                'seller__rating__count'                   => 7,
+                'seller__rating__score'                   => 4.9,
+                'seller__responseTime__inHours'           => 1,
+                'seller__completedOrdersCount'            => 200,
+                'created_at'                              => now(),
+                'updated_at'                              => now(),
+            ],
+        ]);
+
+        // Seed listings JSON with positions 0 and 1
+        $listingsPayload = json_encode([
+            ['gigs' => [['gigId' => 91001, 'pos' => 0], ['gigId' => 91002, 'pos' => 1]]],
+        ]);
+
+        DB::table($importer->getFiverrListingsTable())->insert([
+            'listingAttributes__id'   => $listingId,
+            'listings'                => $listingsPayload,
+            'stats_processed_at'      => now(), // candidate
+            'gigs_stats_processed_at' => null,
+            'created_at'              => now(),
+            'updated_at'              => now(),
+        ]);
+        $lrowForStats = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', $listingId)
+            ->orderByDesc('id')
+            ->first();
+
+        // Ensure listings_gigs has processed rows so the join includes this listing
+        DB::table($importer->getFiverrListingsGigsTable())->insert([
+            [
+                'listingAttributes__id' => $listingId,
+                'gigId'                 => 91001,
+                'processed_at'          => now(),
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ],
+            [
+                'listingAttributes__id' => $listingId,
+                'gigId'                 => 91002,
+                'processed_at'          => now(),
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ],
+        ]);
+
+        // Seed a stats row to be updated
+        DB::table($importer->getFiverrListingsStatsTable())->insert([
+            'listingAttributes__id'  => $listingId,
+            'fiverr_listings_row_id' => $lrowForStats->id,
+            'created_at'             => now(),
+            'updated_at'             => now(),
+        ]);
+
+        $res = $importer->processGigsStatsBatch(batchSize: 10, low: 0, high: 7, useCache: false);
+        $this->assertSame(1, $res['rows_processed']);
+        $this->assertSame(1, $res['updated']);
+        $this->assertSame(0, $res['skipped']);
+
+        $row = DB::table($importer->getFiverrListingsStatsTable())->where('listingAttributes__id', $listingId)->first();
+        $this->assertNotNull($row);
+
+        // Verify a representative json___ field preserves position order
+        $ratings = array_map('floatval', json_decode($row->{'json___overview__gig__rating'}, true));
+        $this->assertSame([4.5, 5.0], $ratings);
+
+        // Verify a representative avg___ field
+        $this->assertSame(4.75, (float) $row->{'avg___overview__gig__rating'});
+
+        // Verify scores (approx)
+        $this->assertSame(30.0, (float) $row->{'score_1'});
+        $this->assertEqualsWithDelta(115.77, (float) $row->{'score_2'}, 0.1);
+        $this->assertEqualsWithDelta(0.259, (float) $row->{'score_3'}, 0.005);
+
+        // Verify the source listing got marked as processed
+        $lrow = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', $listingId)->first();
+        $this->assertNotNull($lrow->{'gigs_stats_processed_at'});
+        $status = json_decode($lrow->{'gigs_stats_processed_status'}, true);
+        $this->assertSame($listingId, $status['listingAttributes__id']);
+        $this->assertSame(1, $status['updated']);
+    }
+
+    public function test_processGigsStatsBatch_skips_when_no_gigs_in_window(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $listingId = 'UT_L2';
+
+        // Seed gigs table
+        DB::table($importer->getFiverrGigsTable())->insert([
+            [
+                'general__gigId'                 => 92001,
+                'overview__gig__rating'          => 4.0,
+                'seo__description__deliveryTime' => '10 days',
+                'created_at'                     => now(),
+                'updated_at'                     => now(),
+            ],
+        ]);
+
+        // Seed listings JSON with positions outside [0,1]
+        $listingsPayload = json_encode([
+            ['gigs' => [['gigId' => 92001, 'pos' => 10]]],
+        ]);
+
+        DB::table($importer->getFiverrListingsTable())->insert([
+            'listingAttributes__id'   => $listingId,
+            'listings'                => $listingsPayload,
+            'stats_processed_at'      => now(),
+            'gigs_stats_processed_at' => null,
+            'created_at'              => now(),
+            'updated_at'              => now(),
+        ]);
+        $lrowForStats2 = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', $listingId)
+            ->orderByDesc('id')
+            ->first();
+
+        DB::table($importer->getFiverrListingsGigsTable())->insert([
+            'listingAttributes__id' => $listingId,
+            'gigId'                 => 92001,
+            'processed_at'          => now(),
+            'created_at'            => now(),
+            'updated_at'            => now(),
+        ]);
+
+        // Seed stats row to be updated (should end up skipped)
+        DB::table($importer->getFiverrListingsStatsTable())->insert([
+            'listingAttributes__id'  => $listingId,
+            'fiverr_listings_row_id' => $lrowForStats2->id,
+            'created_at'             => now(),
+            'updated_at'             => now(),
+        ]);
+
+        $res = $importer->processGigsStatsBatch(batchSize: 10, low: 0, high: 1, useCache: false);
+        $this->assertSame(1, $res['rows_processed']);
+        $this->assertSame(0, $res['updated']);
+        $this->assertSame(1, $res['skipped']);
+
+        $lrow = DB::table($importer->getFiverrListingsTable())->where('listingAttributes__id', $listingId)->first();
+        $this->assertNotNull($lrow->{'gigs_stats_processed_at'});
+        $status = json_decode($lrow->{'gigs_stats_processed_status'}, true);
+        $this->assertSame('no_gigs_in_window', $status['reason']);
+        $this->assertSame($listingId, $status['listingAttributes__id']);
+        $this->assertSame(0, $status['updated']);
+    }
+
+    public function test_processGigsStatsBatch_empty_batch_returns_zeros(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $res      = $importer->processGigsStatsBatch(batchSize: 10, useCache: false);
+        $this->assertSame(0, $res['rows_processed']);
+        $this->assertSame(0, $res['updated']);
+        $this->assertSame(0, $res['skipped']);
+    }
+
+    public function test_processGigsStatsAll_empty_returns_zeros(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $res      = $importer->processGigsStatsAll(batchSize: 5, useCache: false);
+        $this->assertSame(0, $res['rows_processed']);
+        $this->assertSame(0, $res['updated']);
+        $this->assertSame(0, $res['skipped']);
+    }
+
+    public function test_processGigsStatsAll_processes_multiple_batches(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Create three candidate listings, but force batchSize=2 so we need >1 iteration
+        $cases = [
+            [
+                'listingId' => 'UT_ALL_1',
+                'gigs'      => [93001, 93002],
+            ],
+            [
+                'listingId' => 'UT_ALL_2',
+                'gigs'      => [94001, 94002],
+            ],
+            [
+                'listingId' => 'UT_ALL_3',
+                'gigs'      => [95001, 95002],
+            ],
+        ];
+
+        // Seed gigs (2 per listing) with representative fields used by scoring
+        foreach ($cases as $idx => $c) {
+            $g1 = $c['gigs'][0];
+            $g2 = $c['gigs'][1];
+            DB::table($importer->getFiverrGigsTable())->insert([
+                [
+                    'general__gigId'                          => $g1,
+                    'sellerCard__memberSince'                 => 100 + $idx,
+                    'sellerCard__responseTime'                => 2,
+                    'sellerCard__recentDelivery'              => 1700000000000,
+                    'overview__gig__rating'                   => 4.5,
+                    'overview__gig__ratingsCount'             => 10,
+                    'overview__gig__ordersInQueue'            => 2,
+                    'topNav__gigCollectedCount'               => 1,
+                    'portfolio__projectsCount'                => 2,
+                    'seo__description__deliveryTime'          => '1 day',
+                    'seo__schemaMarkup__gigOffers__lowPrice'  => '50.00',
+                    'seo__schemaMarkup__gigOffers__highPrice' => '100.00',
+                    'seller__user__joinedAt'                  => 1500000000,
+                    'seller__sellerLevel'                     => 'level_one',
+                    'seller__isPro'                           => false,
+                    'seller__rating__count'                   => 5,
+                    'seller__rating__score'                   => 4.5,
+                    'seller__responseTime__inHours'           => 3,
+                    'seller__completedOrdersCount'            => 100,
+                    'created_at'                              => now(),
+                    'updated_at'                              => now(),
+                ],
+                [
+                    'general__gigId'                          => $g2,
+                    'sellerCard__memberSince'                 => 233 + $idx,
+                    'sellerCard__responseTime'                => 4,
+                    'sellerCard__recentDelivery'              => 1710000000000,
+                    'overview__gig__rating'                   => 5.0,
+                    'overview__gig__ratingsCount'             => 20,
+                    'overview__gig__ordersInQueue'            => 0,
+                    'topNav__gigCollectedCount'               => 2,
+                    'portfolio__projectsCount'                => 1,
+                    'seo__description__deliveryTime'          => '3 days',
+                    'seo__schemaMarkup__gigOffers__lowPrice'  => '70.00',
+                    'seo__schemaMarkup__gigOffers__highPrice' => '150.00',
+                    'seller__user__joinedAt'                  => 1600000000,
+                    'seller__sellerLevel'                     => 'level_two',
+                    'seller__isPro'                           => true,
+                    'seller__rating__count'                   => 7,
+                    'seller__rating__score'                   => 4.9,
+                    'seller__responseTime__inHours'           => 1,
+                    'seller__completedOrdersCount'            => 200,
+                    'created_at'                              => now(),
+                    'updated_at'                              => now(),
+                ],
+            ]);
+
+            // Seed listing with positions 0 and 1
+            $listingsPayload = json_encode([
+                ['gigs' => [['gigId' => $g1, 'pos' => 0], ['gigId' => $g2, 'pos' => 1]]],
+            ]);
+
+            DB::table($importer->getFiverrListingsTable())->insert([
+                'listingAttributes__id'   => $c['listingId'],
+                'listings'                => $listingsPayload,
+                'stats_processed_at'      => now(),
+                'gigs_stats_processed_at' => null,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ]);
+            $lrow = DB::table($importer->getFiverrListingsTable())
+                ->where('listingAttributes__id', $c['listingId'])
+                ->orderByDesc('id')
+                ->first();
+
+            // listings_gigs join rows (one per gig)
+            DB::table($importer->getFiverrListingsGigsTable())->insert([
+                [
+                    'listingAttributes__id' => $c['listingId'],
+                    'gigId'                 => $g1,
+                    'processed_at'          => now(),
+                    'created_at'            => now(),
+                    'updated_at'            => now(),
+                ],
+                [
+                    'listingAttributes__id' => $c['listingId'],
+                    'gigId'                 => $g2,
+                    'processed_at'          => now(),
+                    'created_at'            => now(),
+                    'updated_at'            => now(),
+                ],
+            ]);
+
+            // stats row to be updated
+            DB::table($importer->getFiverrListingsStatsTable())->insert([
+                'listingAttributes__id'  => $c['listingId'],
+                'fiverr_listings_row_id' => $lrow->id,
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ]);
+        }
+
+        // Run with batchSize 2 to require multiple iterations
+        $res = $importer->processGigsStatsAll(batchSize: 2, low: 0, high: 7, useCache: false);
+        $this->assertSame(3, $res['rows_processed']);
+        $this->assertSame(3, $res['updated']);
+        $this->assertSame(0, $res['skipped']);
+
+        // All three listings should be marked processed
+        foreach ($cases as $c) {
+            $lrow = DB::table($importer->getFiverrListingsTable())
+                ->where('listingAttributes__id', $c['listingId'])
+                ->orderByDesc('id')
+                ->first();
+            $this->assertNotNull($lrow->{'gigs_stats_processed_at'});
+        }
+    }
+
+    public function test_processGigsStatsAll_single_batch_completes(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $cases = [
+            ['listingId' => 'UT_ALL_SB_1', 'gigs' => [96001, 96002]],
+            ['listingId' => 'UT_ALL_SB_2', 'gigs' => [97001, 97002]],
+        ];
+
+        foreach ($cases as $idx => $c) {
+            $g1 = $c['gigs'][0];
+            $g2 = $c['gigs'][1];
+
+            // gigs
+            DB::table($importer->getFiverrGigsTable())->insert([
+                [
+                    'general__gigId'                          => $g1,
+                    'sellerCard__memberSince'                 => 100 + $idx,
+                    'sellerCard__responseTime'                => 2,
+                    'sellerCard__recentDelivery'              => 1700000000000,
+                    'overview__gig__rating'                   => 4.5,
+                    'overview__gig__ratingsCount'             => 10,
+                    'overview__gig__ordersInQueue'            => 2,
+                    'topNav__gigCollectedCount'               => 1,
+                    'portfolio__projectsCount'                => 2,
+                    'seo__description__deliveryTime'          => '1 day',
+                    'seo__schemaMarkup__gigOffers__lowPrice'  => '50.00',
+                    'seo__schemaMarkup__gigOffers__highPrice' => '100.00',
+                    'seller__user__joinedAt'                  => 1500000000,
+                    'seller__sellerLevel'                     => 'level_one',
+                    'seller__isPro'                           => false,
+                    'seller__rating__count'                   => 5,
+                    'seller__rating__score'                   => 4.5,
+                    'seller__responseTime__inHours'           => 3,
+                    'seller__completedOrdersCount'            => 100,
+                    'created_at'                              => now(),
+                    'updated_at'                              => now(),
+                ],
+                [
+                    'general__gigId'                          => $g2,
+                    'sellerCard__memberSince'                 => 233 + $idx,
+                    'sellerCard__responseTime'                => 4,
+                    'sellerCard__recentDelivery'              => 1710000000000,
+                    'overview__gig__rating'                   => 5.0,
+                    'overview__gig__ratingsCount'             => 20,
+                    'overview__gig__ordersInQueue'            => 0,
+                    'topNav__gigCollectedCount'               => 2,
+                    'portfolio__projectsCount'                => 1,
+                    'seo__description__deliveryTime'          => '3 days',
+                    'seo__schemaMarkup__gigOffers__lowPrice'  => '70.00',
+                    'seo__schemaMarkup__gigOffers__highPrice' => '150.00',
+                    'seller__user__joinedAt'                  => 1600000000,
+                    'seller__sellerLevel'                     => 'level_two',
+                    'seller__isPro'                           => true,
+                    'seller__rating__count'                   => 7,
+                    'seller__rating__score'                   => 4.9,
+                    'seller__responseTime__inHours'           => 1,
+                    'seller__completedOrdersCount'            => 200,
+                    'created_at'                              => now(),
+                    'updated_at'                              => now(),
+                ],
+            ]);
+
+            // listing with positions 0,1
+            $listingsPayload = json_encode([
+                ['gigs' => [['gigId' => $g1, 'pos' => 0], ['gigId' => $g2, 'pos' => 1]]],
+            ]);
+            DB::table($importer->getFiverrListingsTable())->insert([
+                'listingAttributes__id'   => $c['listingId'],
+                'listings'                => $listingsPayload,
+                'stats_processed_at'      => now(),
+                'gigs_stats_processed_at' => null,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ]);
+            $lrow = DB::table($importer->getFiverrListingsTable())
+                ->where('listingAttributes__id', $c['listingId'])
+                ->orderByDesc('id')
+                ->first();
+
+            DB::table($importer->getFiverrListingsGigsTable())->insert([
+                [
+                    'listingAttributes__id' => $c['listingId'],
+                    'gigId'                 => $g1,
+                    'processed_at'          => now(),
+                    'created_at'            => now(),
+                    'updated_at'            => now(),
+                ],
+                [
+                    'listingAttributes__id' => $c['listingId'],
+                    'gigId'                 => $g2,
+                    'processed_at'          => now(),
+                    'created_at'            => now(),
+                    'updated_at'            => now(),
+                ],
+            ]);
+
+            DB::table($importer->getFiverrListingsStatsTable())->insert([
+                'listingAttributes__id'  => $c['listingId'],
+                'fiverr_listings_row_id' => $lrow->id,
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ]);
+        }
+
+        // batchSize large enough to finish in one iteration
+        $res = $importer->processGigsStatsAll(batchSize: 10, low: 0, high: 7, useCache: false);
+        $this->assertSame(2, $res['rows_processed']);
+        $this->assertSame(2, $res['updated']);
+        $this->assertSame(0, $res['skipped']);
+
+        foreach ($cases as $c) {
+            $lrow = DB::table($importer->getFiverrListingsTable())
+                ->where('listingAttributes__id', $c['listingId'])
+                ->orderByDesc('id')
+                ->first();
+            $this->assertNotNull($lrow->{'gigs_stats_processed_at'});
+        }
     }
 }

@@ -7,7 +7,7 @@ namespace FOfX\Utility;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Importer for decoding Fiverr embedded JSON and inserting into fiverr_* tables.
@@ -396,6 +396,7 @@ class FiverrJsonImporter
     public function importGigJson(string $jsonPath): array
     {
         ensure_table_exists($this->fiverrGigsTable, $this->fiverrGigsMigrationPath);
+
         $data     = $this->loadJsonFile($jsonPath);
         $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrGigsTable));
         $textCols = $this->getTextColumns($this->fiverrGigsTable);
@@ -456,6 +457,44 @@ class FiverrJsonImporter
             ]);
 
         Log::debug('Reset stats processed status for fiverr_listings', ['rows_updated' => $updated]);
+
+        return $updated;
+    }
+
+    /**
+     * Reset gigs stats processing status for listings so they can be re-processed for gigs stats.
+     * Sets gigs_stats_processed_at and gigs_stats_processed_status to null for all rows in fiverr_listings.
+     *
+     * @return int Number of rows updated
+     */
+    public function resetListingsGigsStatsProcessed(): int
+    {
+        $updated = DB::table($this->fiverrListingsTable)
+            ->update([
+                'gigs_stats_processed_at'     => null,
+                'gigs_stats_processed_status' => null,
+            ]);
+
+        Log::debug('Reset gigs stats processed status for fiverr_listings', ['rows_updated' => $updated]);
+
+        return $updated;
+    }
+
+    /**
+     * Reset processing status for gigs so they can be re-processed.
+     * Sets processed_at and processed_status to null for all rows in fiverr_gigs.
+     *
+     * @return int Number of rows updated
+     */
+    public function resetGigsProcessed(): int
+    {
+        $updated = DB::table($this->fiverrGigsTable)
+            ->update([
+                'processed_at'     => null,
+                'processed_status' => null,
+            ]);
+
+        Log::debug('Reset processed status for fiverr_gigs', ['rows_updated' => $updated]);
 
         return $updated;
     }
@@ -578,12 +617,20 @@ class FiverrJsonImporter
         $grandGigs = 0;
         $grandIns  = 0;
 
+        Log::debug('Starting processListingsGigsAll...', ['batchSize' => $batchSize]);
+
         do {
             $stats = $this->processListingsGigsBatch($batchSize);
             $grandRows += $stats['rows_processed'];
             $grandGigs += $stats['gigs_seen'];
             $grandIns += $stats['inserted'];
         } while ($stats['rows_processed'] > 0);
+
+        Log::debug('Completed processListingsGigsAll', [
+            'rows_processed' => $grandRows,
+            'gigs_seen'      => $grandGigs,
+            'inserted'       => $grandIns,
+        ]);
 
         return [
             'rows_processed' => $grandRows,
@@ -1177,6 +1224,7 @@ class FiverrJsonImporter
     public function processListingsStatsBatch(int $batchSize = 100): array
     {
         ensure_table_exists($this->fiverrListingsStatsTable, $this->fiverrListingsStatsMigrationPath);
+        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
 
         $rows = DB::table($this->fiverrListingsTable)
             ->whereNull('stats_processed_at')
@@ -1234,12 +1282,20 @@ class FiverrJsonImporter
         $grandInserted  = 0;
         $grandSkipped   = 0;
 
+        Log::debug('Starting processListingsStatsAll...', ['batchSize' => $batchSize]);
+
         do {
             $res = $this->processListingsStatsBatch($batchSize);
             $grandProcessed += $res['rows_processed'];
             $grandInserted += $res['inserted'];
             $grandSkipped += $res['skipped'];
         } while ($res['rows_processed'] > 0);
+
+        Log::debug('Completed processListingsStatsAll', [
+            'rows_processed' => $grandProcessed,
+            'inserted'       => $grandInserted,
+            'skipped'        => $grandSkipped,
+        ]);
 
         return [
             'rows_processed' => $grandProcessed,
@@ -1252,142 +1308,182 @@ class FiverrJsonImporter
      * Build and cache a map of listingAttributes__id => decoded listings array.
      *
      * @param int  $chunkSize         Chunk size for DB query
-     * @param bool $useRedis          Use Redis cache (default true)
-     * @param bool $forceRedisRebuild Force Redis rebuild even if cache is present (default false)
+     * @param bool $useCache          Use Laravel Cache (default true)
+     * @param bool $forceCacheRebuild Force cache rebuild even if cache is present (default false)
      *
      * @return array<string,array<mixed>>
      */
-    public function getAllListingsData(int $chunkSize = 100, bool $useRedis = true, bool $forceRedisRebuild = false): array
+    public function getAllListingsData(int $chunkSize = 100, bool $useCache = true, bool $forceCacheRebuild = false): array
     {
-        $redisKeyJson = 'utility:all_listings_data:json';
+        // Using Laravel Cache for type-safe serialization
+        $cacheKey = 'utility:all_listings_data:cache';
 
-        // Try Redis cache first
-        if ($useRedis) {
-            try {
-                if ($forceRedisRebuild) {
-                    Redis::del($redisKeyJson);
-                } else {
-                    $cached = Redis::get($redisKeyJson);
-                    if (is_string($cached) && $cached !== '') {
-                        $arr = json_decode($cached, true);
-                        if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
-                            return $arr; // associative array: listingAttributes__id => decoded listings array
+        $build = function () use ($chunkSize): array {
+            // Build map from DB: listingAttributes__id => decoded listings JSON
+            $map = [];
+            DB::table($this->fiverrListingsTable)
+                ->select(['id', 'listingAttributes__id', 'listings'])
+                ->orderBy('id', 'asc')
+                ->chunkById($chunkSize, function ($rows) use (&$map) {
+                    foreach ($rows as $r) {
+                        $listingId = $r->listingAttributes__id ?? null;
+
+                        if ($listingId === null) {
+                            continue;
                         }
+
+                        if (!is_string($r->listings) || $r->listings === '') {
+                            continue;
+                        }
+
+                        $decoded = json_decode($r->listings, true);
+
+                        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+                            continue;
+                        }
+
+                        // Use string key to be explicit, but either string/int works in PHP array keys
+                        $map[(string) $listingId] = $decoded;
                     }
-                }
-            } catch (\Throwable $e) {
-                // ignore and rebuild
-            }
+                }, 'id');
+
+            return $map;
+        };
+
+        if (!$useCache) {
+            return $build();
         }
 
-        // Build map from DB: listingAttributes__id => decoded listings JSON
-        $map = [];
-        DB::table($this->fiverrListingsTable)
-            ->select(['id', 'listingAttributes__id', 'listings'])
-            ->orderBy('id', 'asc')
-            ->chunkById($chunkSize, function ($rows) use (&$map) {
-                foreach ($rows as $r) {
-                    $listingId = $r->listingAttributes__id ?? null;
-                    if ($listingId === null) {
-                        continue;
-                    }
-                    if (!is_string($r->listings) || $r->listings === '') {
-                        continue;
-                    }
-                    $decoded = json_decode($r->listings, true);
-                    if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
-                        continue;
-                    }
-                    // Use string key to be explicit, but either string/int works in PHP array keys
-                    $map[(string) $listingId] = $decoded;
-                }
-            }, 'id');
-
-        // Cache and return
-        if ($useRedis) {
-            Redis::set($redisKeyJson, json_encode($map));
+        if ($forceCacheRebuild) {
+            Cache::forget($cacheKey);
         }
 
-        return $map;
+        return Cache::rememberForever($cacheKey, $build);
     }
 
     /**
-     * Build and cache a mapping of gigId => listingAttributes__id for gigs whose 'pos' (position) is within [low, high].
+     * Build and cache a map of listingId => [pos => gigId].
      *
-     * First match in range wins when a gig appears multiple times.
+     * Source of truth is getAllListingsData(). For each listing we iterate its gigs and
+     * record the gigId at each position. Inner arrays are sorted by position (ascending).
+     * When reading from Redis, numeric position keys are cast back to integers.
+     *
+     * @param bool $useCache          Use Laravel Cache (default true)
+     * @param bool $forceCacheRebuild Force cache rebuild even if cache is present (default false)
+     *
+     * @return array<string,array<int,int>> listingId => [pos => gigId]
+     */
+    public function getListingToGigPositionsMap(bool $useCache = true, bool $forceCacheRebuild = false): array
+    {
+        // Using Laravel Cache for type-safe serialization
+        $cacheKey = 'utility:listing_gig_pos:by_pos:cache';
+
+        $build = function () use ($useCache, $forceCacheRebuild): array {
+            // Build from getAllListingsData()
+            $data = $this->getAllListingsData(useCache: $useCache, forceCacheRebuild: $forceCacheRebuild);
+
+            $map = [];
+            foreach ($data as $listingId => $decoded) {
+                if (!isset($decoded[0]['gigs']) || !is_array($decoded[0]['gigs'])) {
+                    continue;
+                }
+
+                $lid = (string) $listingId;
+                foreach ($decoded[0]['gigs'] as $g) {
+                    if (!isset($g['gigId'])) {
+                        continue;
+                    }
+
+                    $pos = $g['pos'] ?? null;
+                    if ($pos === null) {
+                        continue;
+                    }
+
+                    $p             = (int) $pos;
+                    $gid           = (int) $g['gigId'];
+                    $map[$lid][$p] = $gid;
+                }
+
+                if (isset($map[$lid])) {
+                    ksort($map[$lid]);
+                }
+            }
+
+            return $map;
+        };
+
+        if (!$useCache) {
+            return $build();
+        }
+
+        if ($forceCacheRebuild) {
+            Cache::forget($cacheKey);
+        }
+
+        return Cache::rememberForever($cacheKey, $build);
+    }
+
+    /**
+     * Build and cache a mapping of gigId => [listingId => pos] for gigs whose 'pos' (position) is within [low, high].
+     *
+     * Notes:
+     * - If the same gig appears multiple times within the same listing, we keep the minimum position for that listing.
+     * - The inner arrays are not guaranteed to be sorted; callers may sort by position if needed.
+     * - Forcing cache rebuild cascades to the base listing map as well.
      *
      * @param int  $low               Low position (inclusive)
      * @param int  $high              High position (inclusive)
-     * @param bool $useRedis          Use Redis cache (default true)
-     * @param bool $forceRedisRebuild Force Redis rebuild even if cache is present (default false)
+     * @param bool $useCache          Use Laravel Cache (default true)
+     * @param bool $forceCacheRebuild Force cache rebuild even if cache is present (default false)
      *
-     * @return array<int,string> Map of gigId => listingAttributes__id
+     * @return array<int,array<string,int>> gigId => [listingId => pos]
      */
-    public function getGigIdToListingIdMapBetweenPositions(int $low, int $high, bool $useRedis = true, bool $forceRedisRebuild = false): array
+    public function getGigIdToListingIdMapBetweenPositions(int $low, int $high, bool $useCache = true, bool $forceCacheRebuild = false): array
     {
         // Validate range
         if ($low > $high) {
             throw new \InvalidArgumentException("Invalid position range: [{$low}, {$high}]");
         }
 
-        // Check Redis cache for this range first
-        $redisKey = "utility:gig_ids_by_pos:{$low}:{$high}:json";
+        // Using Laravel Cache; derive from listing-centric map
+        $cacheKey = "utility:gig_to_listings_pos:{$low}:{$high}:cache";
 
-        if ($useRedis) {
-            try {
-                if ($forceRedisRebuild) {
-                    Redis::del($redisKey);
-                } else {
-                    $cached = Redis::get($redisKey);
-                    if (is_string($cached) && $cached !== '') {
-                        $arr = json_decode($cached, true);
-                        if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
-                            $out = [];
-                            foreach ($arr as $gigId => $listingId) {
-                                $out[(int) $gigId] = (string) $listingId;
-                            }
+        $build = function () use ($low, $high, $useCache, $forceCacheRebuild): array {
+            $out       = [];
+            $byListing = $this->getListingToGigPositionsMap($useCache, $forceCacheRebuild);
 
-                            return $out;
-                        }
+            foreach ($byListing as $listingId => $posMap) {
+                foreach ($posMap as $pos => $gigId) {
+                    $p = (int) $pos;
+
+                    if ($p < $low || $p > $high) {
+                        continue;
                     }
-                }
-            } catch (\Throwable) {
-                // Ignore and rebuild
-            }
-        }
 
-        $data = $this->getAllListingsData(useRedis: $useRedis, forceRedisRebuild: $forceRedisRebuild);
+                    $gid = (int) $gigId;
+                    $lid = (string) $listingId;
 
-        $set = [];
-        foreach ($data as $listingId => $decoded) {
-            if (!isset($decoded[0]['gigs']) || !is_array($decoded[0]['gigs'])) {
-                continue;
-            }
-
-            foreach ($decoded[0]['gigs'] as $g) {
-                if (!isset($g['gigId'])) {
-                    continue;
-                }
-                $pos = $g['pos'] ?? null;
-                if ($pos === null) {
-                    continue;
-                }
-                $p = (int) $pos;
-                if ($p >= $low && $p <= $high) {
-                    $gid = (int) $g['gigId'];
-                    if (!isset($set[$gid])) {
-                        $set[$gid] = (string) $listingId;
+                    // Keep minimum position for each listing
+                    if (!isset($out[$gid][$lid])) {
+                        $out[$gid][$lid] = $p;
+                    } else {
+                        $out[$gid][$lid] = min($out[$gid][$lid], $p);
                     }
                 }
             }
+
+            return $out;
+        };
+
+        if (!$useCache) {
+            return $build();
         }
 
-        // Cache result for this range
-        if ($useRedis) {
-            Redis::set($redisKey, json_encode($set));
+        if ($forceCacheRebuild) {
+            Cache::forget($cacheKey);
         }
 
-        return $set;
+        return Cache::rememberForever($cacheKey, $build);
     }
 
     /**
@@ -1537,15 +1633,25 @@ class FiverrJsonImporter
      *
      * This is compute-only: it reads fiverr_listings and fiverr_gigs and returns an associative array
      * where keys are the same field names as extractGigFieldArrays() and values are float|null averages.
+     *
+     * @param string $listingAttributesId listingAttributes__id
+     * @param int    $low                 Low position (inclusive)
+     * @param int    $high                High position (inclusive)
+     * @param bool   $useCache            Use Laravel Cache where applicable
+     * @param bool   $forceCacheRebuild   Force Cache rebuild
+     *
+     * @return array<string,float|null> Map of field => average
      */
-    public function computeListingGigFieldAverages(string $listingAttributesId, int $low = 0, int $high = 7, bool $useRedis = true, bool $forceRedisRebuild = false): array
+    public function computeListingGigFieldAverages(string $listingAttributesId, int $low = 0, int $high = 7, bool $useCache = true, bool $forceCacheRebuild = false): array
     {
-        // Map gigId => listingAttributes__id for the range, then filter to the target listing
-        $map = $this->getGigIdToListingIdMapBetweenPositions($low, $high, $useRedis, $forceRedisRebuild);
+        // Gather gigIds for this listing within [low, high] using listing->position map
+        $byListing = $this->getListingToGigPositionsMap($useCache, $forceCacheRebuild);
+        $posMap    = $byListing[$listingAttributesId] ?? [];
 
         $gigIds = [];
-        foreach ($map as $gid => $lid) {
-            if ((string) $lid === $listingAttributesId) {
+        foreach ($posMap as $pos => $gid) {
+            $p = (int) $pos;
+            if ($p >= $low && $p <= $high) {
                 $gigIds[] = (int) $gid;
             }
         }
@@ -1618,6 +1724,10 @@ class FiverrJsonImporter
      *   - Null if score_2 == 0 (avoid divide-by-zero)
      *
      * All numeric-like strings are coerced to float; non-numeric strings are treated as null.
+     *
+     * @param array<string,mixed> $statsRow Row from fiverr_listings_stats
+     *
+     * @return array{score_1:float|null,score_2:float|null,score_3:float|null}
      */
     public function computeScoresForStatsRow(array $statsRow): array
     {
@@ -1684,5 +1794,175 @@ class FiverrJsonImporter
             'score_2' => $score2,
             'score_3' => $score3,
         ];
+    }
+
+    /**
+     * Process gigs-based stats for listings that already have listing-snapshot stats but no gigs stats yet.
+     *
+     * - Picks listings where fiverr_listings.stats_processed_at IS NOT NULL and gigs_stats_processed_at IS NULL
+     * - Further filters to those listingAttributes__id that exist in fiverr_listings_gigs with processed_at IS NOT NULL
+     * - For each listing, computes per-field arrays (json___*) and averages (avg___*) from the fiverr_gigs table
+     *   using extractGigFieldArrays() and computeListingGigFieldAverages()
+     * - Computes score_1/score_2/score_3 using computeScoresForStatsRow() and writes them to stats row
+     * - Marks fiverr_listings.gigs_stats_processed_* for bookkeeping
+     *
+     * @param int  $batchSize         Batch size
+     * @param int  $low               Low position (inclusive) for gigs window
+     * @param int  $high              High position (inclusive) for gigs window
+     * @param bool $useCache          Use Laravel Cache where applicable
+     * @param bool $forceCacheRebuild Force Cache rebuild
+     *
+     * @return array{rows_processed:int,updated:int,skipped:int}
+     */
+    public function processGigsStatsBatch(
+        int $batchSize = 100,
+        int $low = 0,
+        int $high = 7,
+        bool $useCache = true,
+        bool $forceCacheRebuild = false
+    ): array {
+        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
+        ensure_table_exists($this->fiverrListingsGigsTable, $this->fiverrListingsGigsMigrationPath);
+        ensure_table_exists($this->fiverrListingsStatsTable, $this->fiverrListingsStatsMigrationPath);
+        // $fiverrGigsTable used indirectly inside helper methods
+        ensure_table_exists($this->fiverrGigsTable, $this->fiverrGigsMigrationPath);
+
+        // Select candidate listings (already snapshot-processed, not yet gigs-stats-processed), ordered by id asc
+        $rows = DB::table($this->fiverrListingsTable . ' as l')
+            ->join($this->fiverrListingsGigsTable . ' as lg', 'l.listingAttributes__id', '=', 'lg.listingAttributes__id')
+            ->whereNotNull('l.stats_processed_at')
+            ->whereNull('l.gigs_stats_processed_at')
+            ->whereNotNull('lg.processed_at')
+            ->orderBy('l.id', 'asc')
+            ->select(['l.id', 'l.listingAttributes__id'])
+            ->distinct()
+            ->limit($batchSize)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return ['rows_processed' => 0, 'updated' => 0, 'skipped' => 0];
+        }
+
+        $processed = 0;
+        $updated   = 0;
+        $skipped   = 0;
+
+        // Precompute listing->position map once per batch and filter inline by [low, high]
+        $byListing = $this->getListingToGigPositionsMap($useCache, $forceCacheRebuild);
+
+        foreach ($rows as $r) {
+            $processed++;
+            $listingId = (string) $r->listingAttributes__id;
+
+            $posMap = $byListing[$listingId] ?? [];
+            $gigIds = [];
+            foreach ($posMap as $pos => $gid) {
+                $p = (int) $pos;
+                if ($p >= $low && $p <= $high) {
+                    $gigIds[] = (int) $gid;
+                }
+            }
+
+            if (count($gigIds) === 0) {
+                // No gigs in the window; skip but still mark processed to avoid infinite retries
+                DB::table($this->fiverrListingsTable)->where('id', $r->id)->update([
+                    'gigs_stats_processed_at'     => now(),
+                    'gigs_stats_processed_status' => json_encode([
+                        'listingAttributes__id' => $listingId,
+                        'updated'               => 0,
+                        'reason'                => 'no_gigs_in_window',
+                    ], $this->jsonFlags),
+                ]);
+                $skipped++;
+
+                continue;
+            }
+
+            // Build per-field arrays and averages using existing helpers
+            $arrays = $this->extractGigFieldArrays($gigIds);
+            // Use Redis for averages to avoid loading all listings JSON into memory
+            $avgs = $this->computeListingGigFieldAverages($listingId, $low, $high, $useCache, $forceCacheRebuild);
+
+            // Prepare update payload: json___* and avg___*
+            $update = [];
+            foreach ($arrays as $field => $values) {
+                $update['json___' . $field] = json_encode($values, $this->jsonFlags);
+            }
+            foreach ($avgs as $field => $avg) {
+                $update['avg___' . $field] = $avg;
+            }
+
+            // Compute scores from the avg___ fields
+            $scores = $this->computeScoresForStatsRow($update);
+            $update = array_merge($update, $scores);
+
+            // Update the stats row for this listing
+            $aff = DB::table($this->fiverrListingsStatsTable)
+                ->where('listingAttributes__id', $listingId)
+                ->update($update);
+
+            // Mark source listing
+            DB::table($this->fiverrListingsTable)->where('id', $r->id)->update([
+                'gigs_stats_processed_at'     => now(),
+                'gigs_stats_processed_status' => json_encode([
+                    'listingAttributes__id' => $listingId,
+                    'updated'               => (int) $aff,
+                ], $this->jsonFlags),
+            ]);
+
+            $updated += (int) $aff;
+        }
+
+        return [
+            'rows_processed' => $processed,
+            'updated'        => $updated,
+            'skipped'        => $skipped,
+        ];
+    }
+
+    /**
+     * Process gigs-based stats for ALL candidate listings by repeatedly calling processGigsStatsBatch().
+     *
+     * Returns the aggregate counts across all batches.
+     *
+     * @param int  $batchSize         Batch size
+     * @param int  $low               Low position (inclusive) for gigs window
+     * @param int  $high              High position (inclusive) for gigs window
+     * @param bool $useCache          Use Laravel Cache where applicable
+     * @param bool $forceCacheRebuild Force Cache rebuild
+     *
+     * @return array{rows_processed:int,updated:int,skipped:int}
+     */
+    public function processGigsStatsAll(
+        int $batchSize = 100,
+        int $low = 0,
+        int $high = 7,
+        bool $useCache = true,
+        bool $forceCacheRebuild = false
+    ): array {
+        $total = [
+            'rows_processed' => 0,
+            'updated'        => 0,
+            'skipped'        => 0,
+        ];
+
+        Log::debug('Starting processGigsStatsAll...', [
+            'batchSize'         => $batchSize,
+            'low'               => $low,
+            'high'              => $high,
+            'useCache'          => $useCache,
+            'forceCacheRebuild' => $forceCacheRebuild,
+        ]);
+
+        do {
+            $res = $this->processGigsStatsBatch($batchSize, $low, $high, $useCache, $forceCacheRebuild);
+            $total['rows_processed'] += (int) ($res['rows_processed']);
+            $total['updated'] += (int) ($res['updated']);
+            $total['skipped'] += (int) ($res['skipped']);
+        } while (($res['rows_processed']) > 0);
+
+        Log::debug('Completed processGigsStatsAll', $total);
+
+        return $total;
     }
 }
