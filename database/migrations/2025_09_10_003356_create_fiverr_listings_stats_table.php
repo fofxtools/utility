@@ -166,6 +166,13 @@ return new class () extends Migration {
             $table->float('score_1')->nullable();
             $table->float('score_2')->nullable();
             $table->float('score_3')->nullable();
+            $table->float('score_4')->nullable();
+            $table->float('score_5')->nullable();
+            $table->float('score_6')->nullable();
+            $table->float('score_7')->nullable();
+            $table->float('score_8')->nullable();
+            $table->float('score_9')->nullable();
+            $table->float('score_10')->nullable();
 
             // Standard Laravel timestamps
             $table->timestamps();
@@ -237,6 +244,13 @@ return new class () extends Migration {
             $table->index('score_1', 'idx_fls_score_1');
             $table->index('score_2', 'idx_fls_score_2');
             $table->index('score_3', 'idx_fls_score_3');
+            $table->index('score_4', 'idx_fls_score_4');
+            $table->index('score_5', 'idx_fls_score_5');
+            $table->index('score_6', 'idx_fls_score_6');
+            $table->index('score_7', 'idx_fls_score_7');
+            $table->index('score_8', 'idx_fls_score_8');
+            $table->index('score_9', 'idx_fls_score_9');
+            $table->index('score_10', 'idx_fls_score_10');
 
             $table->index('processed_at', 'idx_fls_processed_at');
         });

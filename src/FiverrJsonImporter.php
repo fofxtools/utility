@@ -165,25 +165,6 @@ class FiverrJsonImporter
     }
 
     /**
-     * Load and decode a JSON file as an associative array.
-     *
-     * @throws \RuntimeException when file is missing or JSON is invalid
-     */
-    public function loadJsonFile(string $path): array
-    {
-        if (!file_exists($path)) {
-            throw new \RuntimeException("JSON file not found: {$path}");
-        }
-        $raw  = file_get_contents($path);
-        $data = json_decode($raw ?: 'null', true);
-        if (!is_array($data)) {
-            throw new \RuntimeException("Failed to decode JSON: {$path}");
-        }
-
-        return $data;
-    }
-
-    /**
      * Return all column names for a table.
      * Uses Schema facade for driver-agnostic listing.
      *
@@ -369,16 +350,50 @@ class FiverrJsonImporter
     }
 
     /**
-     * Import a Fiverr listings JSON file into fiverr_listings.
+     * Decode a JSON string as an associative array.
      *
-     * @param string $jsonPath Absolute or relative path to the JSON file
+     * @throws \RuntimeException When JSON is invalid or does not decode to an array
+     */
+    public function loadJsonString(string $json): array
+    {
+        $data = json_decode($json ?: 'null', true);
+        if (!is_array($data)) {
+            throw new \RuntimeException('Failed to decode JSON payload');
+        }
+
+        return $data;
+    }
+
+    /**
+     * Load and decode a JSON file as an associative array.
+     *
+     * @throws \RuntimeException When file is missing or JSON is invalid
+     */
+    public function loadJsonFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new \RuntimeException("JSON file not found: {$path}");
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("Failed to read JSON file: {$path}");
+        }
+
+        return $this->loadJsonString($raw);
+    }
+
+    /**
+     * Import Fiverr listings from a JSON string into fiverr_listings.
+     *
+     * @param string $json JSON payload
      *
      * @return array{inserted:int,skipped:int}
      */
-    public function importListingsJson(string $jsonPath): array
+    public function importListingsFromJson(string $json): array
     {
         ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
-        $data     = $this->loadJsonFile($jsonPath);
+
+        $data     = $this->loadJsonString($json);
         $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrListingsTable));
         $textCols = $this->getTextColumns($this->fiverrListingsTable);
         $payload  = $this->extractAndEncode($data, $columns, $textCols);
@@ -387,17 +402,17 @@ class FiverrJsonImporter
     }
 
     /**
-     * Import a Fiverr gig JSON file into fiverr_gigs.
+     * Import a Fiverr gig from a JSON string into fiverr_gigs.
      *
-     * @param string $jsonPath Absolute or relative path to the JSON file
+     * @param string $json JSON payload
      *
      * @return array{inserted:int,skipped:int}
      */
-    public function importGigJson(string $jsonPath): array
+    public function importGigFromJson(string $json): array
     {
         ensure_table_exists($this->fiverrGigsTable, $this->fiverrGigsMigrationPath);
 
-        $data     = $this->loadJsonFile($jsonPath);
+        $data     = $this->loadJsonString($json);
         $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrGigsTable));
         $textCols = $this->getTextColumns($this->fiverrGigsTable);
         $payload  = $this->extractAndEncode($data, $columns, $textCols);
@@ -406,21 +421,82 @@ class FiverrJsonImporter
     }
 
     /**
-     * Import a Fiverr seller profile JSON file into fiverr_seller_profiles.
+     * Import a Fiverr seller profile from a JSON string into fiverr_seller_profiles.
      *
-     * @param string $jsonPath Absolute or relative path to the JSON file
+     * @param string $json JSON payload
      *
      * @return array{inserted:int,skipped:int}
      */
-    public function importSellerProfileJson(string $jsonPath): array
+    public function importSellerProfileFromJson(string $json): array
     {
         ensure_table_exists($this->fiverrSellerProfilesTable, $this->fiverrSellerProfilesMigrationPath);
-        $data     = $this->loadJsonFile($jsonPath);
+
+        $data     = $this->loadJsonString($json);
         $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrSellerProfilesTable));
         $textCols = $this->getTextColumns($this->fiverrSellerProfilesTable);
         $payload  = $this->extractAndEncode($data, $columns, $textCols);
 
         return $this->insertRows($this->fiverrSellerProfilesTable, $payload);
+    }
+
+    /**
+     * Import a Fiverr listings JSON file into fiverr_listings.
+     *
+     * @param string $path Absolute or relative path to the JSON file
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importListingsFromFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new \RuntimeException("JSON file not found: {$path}");
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("Failed to read JSON file: {$path}");
+        }
+
+        return $this->importListingsFromJson($raw);
+    }
+
+    /**
+     * Import a Fiverr gig JSON file into fiverr_gigs.
+     *
+     * @param string $path Absolute or relative path to the JSON file
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importGigFromFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new \RuntimeException("JSON file not found: {$path}");
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("Failed to read JSON file: {$path}");
+        }
+
+        return $this->importGigFromJson($raw);
+    }
+
+    /**
+     * Import a Fiverr seller profile JSON file into fiverr_seller_profiles.
+     *
+     * @param string $path Absolute or relative path to the JSON file
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importSellerProfileFromFile(string $path): array
+    {
+        if (!file_exists($path)) {
+            throw new \RuntimeException("JSON file not found: {$path}");
+        }
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("Failed to read JSON file: {$path}");
+        }
+
+        return $this->importSellerProfileFromJson($raw);
     }
 
     /**
@@ -1727,7 +1803,7 @@ class FiverrJsonImporter
      *
      * @param array<string,mixed> $statsRow Row from fiverr_listings_stats
      *
-     * @return array{score_1:float|null,score_2:float|null,score_3:float|null}
+     * @return array{score_1:float|null,score_2:float|null,score_3:float|null,score_4:float|null,score_5:float|null}
      */
     public function computeScoresForStatsRow(array $statsRow): array
     {
@@ -1760,6 +1836,7 @@ class FiverrJsonImporter
         $ratingsCount        = $toFloat($statsRow['avg___overview__gig__ratingsCount'] ?? null);
         $sellerLevel         = $toFloat($statsRow['avg___seller__sellerLevel'] ?? null);
         $sellerLevelAdjusted = $toFloat($statsRow['avg___seller__sellerLevel___adjusted'] ?? null);
+        $paginationTotal     = $toFloat($statsRow['appData__pagination__total'] ?? null);
 
         // score_1
         $score1 = null;
@@ -1789,10 +1866,24 @@ class FiverrJsonImporter
             $score3 = null;
         }
 
+        // score_4
+        $score4 = null;
+        if ($score1 !== null && $paginationTotal !== null && $paginationTotal > 0.0) {
+            $score4 = $score1 / $paginationTotal;
+        }
+
+        // score_5
+        $score5 = null;
+        if ($score1 !== null && $paginationTotal !== null && $paginationTotal > 0.0) {
+            $score5 = $score1 / sqrt($paginationTotal);
+        }
+
         return [
             'score_1' => $score1,
             'score_2' => $score2,
             'score_3' => $score3,
+            'score_4' => $score4,
+            'score_5' => $score5,
         ];
     }
 
@@ -1834,7 +1925,7 @@ class FiverrJsonImporter
             ->whereNull('l.gigs_stats_processed_at')
             ->whereNotNull('lg.processed_at')
             ->orderBy('l.id', 'asc')
-            ->select(['l.id', 'l.listingAttributes__id'])
+            ->select(['l.id', 'l.listingAttributes__id', 'l.appData__pagination__total'])
             ->distinct()
             ->limit($batchSize)
             ->get();
@@ -1891,6 +1982,9 @@ class FiverrJsonImporter
             foreach ($avgs as $field => $avg) {
                 $update['avg___' . $field] = $avg;
             }
+
+            // Include pagination total from listings so computeScoresForStatsRow can use it later
+            $update['appData__pagination__total'] = $r->appData__pagination__total ?? null;
 
             // Compute scores from the avg___ fields
             $scores = $this->computeScoresForStatsRow($update);

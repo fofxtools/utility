@@ -69,41 +69,6 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame('/tmp/e.php', $importer->getFiverrListingsStatsMigrationPath());
     }
 
-    public function test_loadJsonFile_success(): void
-    {
-        $importer = new FiverrJsonImporter();
-        $tmpOk    = tempnam(sys_get_temp_dir(), 'importer_json_');
-        file_put_contents($tmpOk, json_encode(['a' => 1]));
-
-        try {
-            $data = $importer->loadJsonFile($tmpOk);
-            $this->assertSame(['a' => 1], $data);
-        } finally { // Use finally to ensure cleanup even if assertion fails
-            unlink($tmpOk);
-        }
-    }
-
-    public function test_loadJsonFile_invalid_json_throws(): void
-    {
-        $importer = new FiverrJsonImporter();
-        $tmpBad   = tempnam(sys_get_temp_dir(), 'importer_json_');
-        file_put_contents($tmpBad, '{not-json');
-        $this->expectException(\RuntimeException::class);
-
-        try {
-            $importer->loadJsonFile($tmpBad);
-        } finally {
-            unlink($tmpBad);
-        }
-    }
-
-    public function test_loadJsonFile_missing_throws(): void
-    {
-        $importer = new FiverrJsonImporter();
-        $this->expectException(\RuntimeException::class);
-        $importer->loadJsonFile('/definitely/missing/file.json');
-    }
-
     public function test_getTableColumns_returns_columns(): void
     {
         Schema::dropIfExists('tmp_cols');
@@ -293,7 +258,93 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame($updated, (string) $row->updated_at);
     }
 
-    public function test_importListingsJson_inserts_row(): void
+    public function test_loadJsonString_success(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $decoded  = $importer->loadJsonString(json_encode(['a' => 1]));
+        $this->assertSame(['a' => 1], $decoded);
+    }
+
+    public function test_loadJsonString_invalid_json_throws(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->expectException(\RuntimeException::class);
+        $importer->loadJsonString('{bad-json');
+    }
+
+    public function test_loadJsonFile_success(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tmpOk    = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($tmpOk, json_encode(['a' => 1]));
+
+        try {
+            $data = $importer->loadJsonFile($tmpOk);
+            $this->assertSame(['a' => 1], $data);
+        } finally { // Use finally to ensure cleanup even if assertion fails
+            unlink($tmpOk);
+        }
+    }
+
+    public function test_loadJsonFile_invalid_json_throws(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tmpBad   = tempnam(sys_get_temp_dir(), 'importer_json_');
+        file_put_contents($tmpBad, '{not-json');
+        $this->expectException(\RuntimeException::class);
+
+        try {
+            $importer->loadJsonFile($tmpBad);
+        } finally {
+            unlink($tmpBad);
+        }
+    }
+
+    public function test_loadJsonFile_missing_throws(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $this->expectException(\RuntimeException::class);
+        $importer->loadJsonFile('/definitely/missing/file.json');
+    }
+
+    public function test_importListingsFromJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'listingAttributes' => ['id' => 'L_JSON_1'],
+            'listings'          => [['gigs' => []]],
+        ];
+
+        $res = $importer->importListingsFromJson(json_encode($payload));
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrListingsTable())->count());
+    }
+
+    public function test_importGigFromJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'general' => ['gigId' => 777001],
+        ];
+
+        $res = $importer->importGigFromJson(json_encode($payload));
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrGigsTable())->count());
+    }
+
+    public function test_importSellerProfileFromJson_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'seller' => ['user' => ['id' => 'SELL_JSON_1']],
+        ];
+
+        $res = $importer->importSellerProfileFromJson(json_encode($payload));
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrSellerProfilesTable())->count());
+    }
+
+    public function test_importListingsFromFile_inserts_row(): void
     {
         $importer = new FiverrJsonImporter();
 
@@ -311,7 +362,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $res = $importer->importListingsJson($json);
+            $res = $importer->importListingsFromFile($json);
             $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
             $this->assertSame(1, DB::table($importer->getFiverrListingsTable())->count());
         } finally {
@@ -319,7 +370,7 @@ class FiverrJsonImporterTest extends TestCase
         }
     }
 
-    public function test_importGigJson_inserts_row(): void
+    public function test_importGigFromFile_inserts_row(): void
     {
         $importer = new FiverrJsonImporter();
 
@@ -334,7 +385,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $res = $importer->importGigJson($json);
+            $res = $importer->importGigFromFile($json);
             $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
             $this->assertSame(1, DB::table($importer->getFiverrGigsTable())->count());
         } finally {
@@ -342,7 +393,7 @@ class FiverrJsonImporterTest extends TestCase
         }
     }
 
-    public function test_importSellerProfileJson_inserts_row(): void
+    public function test_importSellerProfileFromFile_inserts_row(): void
     {
         $importer = new FiverrJsonImporter();
 
@@ -359,7 +410,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $res = $importer->importSellerProfileJson($json);
+            $res = $importer->importSellerProfileFromFile($json);
             $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
             $this->assertSame(1, DB::table($importer->getFiverrSellerProfilesTable())->count());
         } finally {
@@ -550,7 +601,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -597,7 +648,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $importer->importListingsJson($json);
+            $importer->importListingsFromFile($json);
         } finally {
             unlink($json);
         }
@@ -626,7 +677,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $importer->importListingsJson($json);
+            $importer->importListingsFromFile($json);
         } finally {
             unlink($json);
         }
@@ -661,7 +712,7 @@ class FiverrJsonImporterTest extends TestCase
         file_put_contents($json, json_encode($payload));
 
         try {
-            $importer->importListingsJson($json);
+            $importer->importListingsFromFile($json);
         } finally {
             unlink($json);
         }
@@ -706,7 +757,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1215,7 +1266,7 @@ class FiverrJsonImporterTest extends TestCase
 
             try {
                 file_put_contents($json, json_encode($makePayload($id)));
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1295,7 +1346,7 @@ class FiverrJsonImporterTest extends TestCase
 
         try {
             file_put_contents($json, json_encode($payload));
-            $importer->importListingsJson($json);
+            $importer->importListingsFromFile($json);
         } finally {
             unlink($json);
         }
@@ -1349,7 +1400,7 @@ class FiverrJsonImporterTest extends TestCase
 
             try {
                 file_put_contents($json, json_encode($payload));
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1394,7 +1445,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1454,7 +1505,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1493,7 +1544,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1536,7 +1587,7 @@ class FiverrJsonImporterTest extends TestCase
             file_put_contents($json, json_encode($p));
 
             try {
-                $importer->importListingsJson($json);
+                $importer->importListingsFromFile($json);
             } finally {
                 unlink($json);
             }
@@ -1843,6 +1894,10 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame($expectedScore1, $scores['score_1']);
         $this->assertSame($expectedScore2, $scores['score_2']);
         $this->assertSame($expectedScore3, $scores['score_3']);
+
+        // Pagination total scores when it is not provided
+        $this->assertNull($scores['score_4']);
+        $this->assertNull($scores['score_5']);
     }
 
     public function test_computeScoresForStatsRow_score1_null_when_delivery_days_invalid(): void
@@ -1864,6 +1919,10 @@ class FiverrJsonImporterTest extends TestCase
         // score_2 should still compute
         $this->assertSame(4.8 * log(100) * (2 * 2), $scores['score_2']);
         $this->assertNull($scores['score_3']); // since score_1 is null
+
+        // Should be null when score_1 is null
+        $this->assertNull($scores['score_4']);
+        $this->assertNull($scores['score_5']);
     }
 
     public function test_computeScoresForStatsRow_score2_null_on_invalid_ratingsCount(): void
@@ -1884,6 +1943,10 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
         $this->assertNull($scores['score_2']);
         $this->assertNull($scores['score_3']);
+
+        // Pagination total scores when it is not provided
+        $this->assertNull($scores['score_4']);
+        $this->assertNull($scores['score_5']);
     }
 
     public function test_computeScoresForStatsRow_score3_null_when_score2_zero_due_to_zero_levelAdjusted(): void
@@ -1904,6 +1967,31 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
         $this->assertSame(0.0, $scores['score_2']);
         $this->assertNull($scores['score_3']);
+
+        // Pagination total scores when it is not provided
+        $this->assertNull($scores['score_4']);
+        $this->assertNull($scores['score_5']);
+    }
+
+    public function test_computeScoresForStatsRow_score4_score5_with_pagination_total(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel___adjusted'         => 2,
+            'appData__pagination__total'                   => 400,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $expectedScore1 = (10.0 / 2.0) * 100.0; // 500
+        $this->assertSame($expectedScore1 / 400.0, $scores['score_4']);
+        $this->assertSame($expectedScore1 / sqrt(400.0), $scores['score_5']);
     }
 
     public function test_processGigsStatsBatch_updates_stats_for_listing_with_in_range_gigs(): void
