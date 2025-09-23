@@ -307,6 +307,43 @@ class FiverrJsonImporterTest extends TestCase
         $importer->loadJsonFile('/definitely/missing/file.json');
     }
 
+    public function test_importListingsFromArray_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'listingAttributes' => ['id' => 'L_ARY_1'],
+            'listings'          => [['gigs' => []]],
+        ];
+
+        $res = $importer->importListingsFromArray($payload);
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrListingsTable())->count());
+    }
+
+    public function test_importGigFromArray_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'general' => ['gigId' => 777002],
+        ];
+
+        $res = $importer->importGigFromArray($payload);
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrGigsTable())->count());
+    }
+
+    public function test_importSellerProfileFromArray_inserts_row(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $payload  = [
+            'seller' => ['user' => ['id' => 'SELL_ARY_1']],
+        ];
+
+        $res = $importer->importSellerProfileFromArray($payload);
+        $this->assertSame(['inserted' => 1, 'skipped' => 0], $res);
+        $this->assertSame(1, DB::table($importer->getFiverrSellerProfilesTable())->count());
+    }
+
     public function test_importListingsFromJson_inserts_row(): void
     {
         $importer = new FiverrJsonImporter();

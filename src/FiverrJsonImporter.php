@@ -383,6 +383,60 @@ class FiverrJsonImporter
     }
 
     /**
+     * Import Fiverr listings from an array into fiverr_listings.
+     *
+     * @param array<string,mixed> $data Decoded JSON payload
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importListingsFromArray(array $data): array
+    {
+        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
+
+        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrListingsTable));
+        $textCols = $this->getTextColumns($this->fiverrListingsTable);
+        $payload  = $this->extractAndEncode($data, $columns, $textCols);
+
+        return $this->insertRows($this->fiverrListingsTable, $payload);
+    }
+
+    /**
+     * Import a Fiverr gig from an array into fiverr_gigs.
+     *
+     * @param array<string,mixed> $data Decoded JSON payload
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importGigFromArray(array $data): array
+    {
+        ensure_table_exists($this->fiverrGigsTable, $this->fiverrGigsMigrationPath);
+
+        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrGigsTable));
+        $textCols = $this->getTextColumns($this->fiverrGigsTable);
+        $payload  = $this->extractAndEncode($data, $columns, $textCols);
+
+        return $this->insertRows($this->fiverrGigsTable, $payload);
+    }
+
+    /**
+     * Import a Fiverr seller profile from an array into fiverr_seller_profiles.
+     *
+     * @param array<string,mixed> $data Decoded JSON payload
+     *
+     * @return array{inserted:int,skipped:int}
+     */
+    public function importSellerProfileFromArray(array $data): array
+    {
+        ensure_table_exists($this->fiverrSellerProfilesTable, $this->fiverrSellerProfilesMigrationPath);
+
+        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrSellerProfilesTable));
+        $textCols = $this->getTextColumns($this->fiverrSellerProfilesTable);
+        $payload  = $this->extractAndEncode($data, $columns, $textCols);
+
+        return $this->insertRows($this->fiverrSellerProfilesTable, $payload);
+    }
+
+    /**
      * Import Fiverr listings from a JSON string into fiverr_listings.
      *
      * @param string $json JSON payload
@@ -391,14 +445,9 @@ class FiverrJsonImporter
      */
     public function importListingsFromJson(string $json): array
     {
-        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
+        $data = $this->loadJsonString($json);
 
-        $data     = $this->loadJsonString($json);
-        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrListingsTable));
-        $textCols = $this->getTextColumns($this->fiverrListingsTable);
-        $payload  = $this->extractAndEncode($data, $columns, $textCols);
-
-        return $this->insertRows($this->fiverrListingsTable, $payload);
+        return $this->importListingsFromArray($data);
     }
 
     /**
@@ -410,14 +459,9 @@ class FiverrJsonImporter
      */
     public function importGigFromJson(string $json): array
     {
-        ensure_table_exists($this->fiverrGigsTable, $this->fiverrGigsMigrationPath);
+        $data = $this->loadJsonString($json);
 
-        $data     = $this->loadJsonString($json);
-        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrGigsTable));
-        $textCols = $this->getTextColumns($this->fiverrGigsTable);
-        $payload  = $this->extractAndEncode($data, $columns, $textCols);
-
-        return $this->insertRows($this->fiverrGigsTable, $payload);
+        return $this->importGigFromArray($data);
     }
 
     /**
@@ -429,14 +473,9 @@ class FiverrJsonImporter
      */
     public function importSellerProfileFromJson(string $json): array
     {
-        ensure_table_exists($this->fiverrSellerProfilesTable, $this->fiverrSellerProfilesMigrationPath);
+        $data = $this->loadJsonString($json);
 
-        $data     = $this->loadJsonString($json);
-        $columns  = $this->removeExcludedColumns($this->getTableColumns($this->fiverrSellerProfilesTable));
-        $textCols = $this->getTextColumns($this->fiverrSellerProfilesTable);
-        $payload  = $this->extractAndEncode($data, $columns, $textCols);
-
-        return $this->insertRows($this->fiverrSellerProfilesTable, $payload);
+        return $this->importSellerProfileFromArray($data);
     }
 
     /**
@@ -448,15 +487,9 @@ class FiverrJsonImporter
      */
     public function importListingsFromFile(string $path): array
     {
-        if (!file_exists($path)) {
-            throw new \RuntimeException("JSON file not found: {$path}");
-        }
-        $raw = file_get_contents($path);
-        if ($raw === false) {
-            throw new \RuntimeException("Failed to read JSON file: {$path}");
-        }
+        $data = $this->loadJsonFile($path);
 
-        return $this->importListingsFromJson($raw);
+        return $this->importListingsFromArray($data);
     }
 
     /**
@@ -468,15 +501,9 @@ class FiverrJsonImporter
      */
     public function importGigFromFile(string $path): array
     {
-        if (!file_exists($path)) {
-            throw new \RuntimeException("JSON file not found: {$path}");
-        }
-        $raw = file_get_contents($path);
-        if ($raw === false) {
-            throw new \RuntimeException("Failed to read JSON file: {$path}");
-        }
+        $data = $this->loadJsonFile($path);
 
-        return $this->importGigFromJson($raw);
+        return $this->importGigFromArray($data);
     }
 
     /**
@@ -488,15 +515,9 @@ class FiverrJsonImporter
      */
     public function importSellerProfileFromFile(string $path): array
     {
-        if (!file_exists($path)) {
-            throw new \RuntimeException("JSON file not found: {$path}");
-        }
-        $raw = file_get_contents($path);
-        if ($raw === false) {
-            throw new \RuntimeException("Failed to read JSON file: {$path}");
-        }
+        $data = $this->loadJsonFile($path);
 
-        return $this->importSellerProfileFromJson($raw);
+        return $this->importSellerProfileFromArray($data);
     }
 
     /**
