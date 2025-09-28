@@ -420,6 +420,7 @@ class FiverrJsonImporterTest extends TestCase
 
         // Test required transformations
         $this->assertSame('tag', $result['source_format']);
+        $this->assertSame('tag-123', $result['listingAttributes__id']);
         $this->assertArrayHasKey('listings', $result);
         $this->assertCount(1, $result['listings']);
         $this->assertArrayHasKey('gigs', $result['listings'][0]);

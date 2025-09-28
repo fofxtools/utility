@@ -407,6 +407,12 @@ class FiverrJsonImporter
      * Converts the direct gigs array structure from tags pages into the nested listings
      * structure expected by the import process.
      *
+     * - Sets source_format to 'tag'
+     * - Sets listingAttributes__id to the tag's 'id'
+     * - Wraps the gigs array in a listings array
+     * - Sets appData.pagination.total to numOfGigs
+     * - Extracts category IDs from the first gig and sets them in categoryIds
+     *
      * @param array<string,mixed> $tagsData Decoded JSON from a Fiverr tags page
      *
      * @return array<string,mixed> Transformed data compatible with importListingsFromArray()
@@ -417,8 +423,9 @@ class FiverrJsonImporter
         $firstGig = $gigs[0] ?? [];
 
         $transformed = [
-            'source_format' => 'tag',
-            'listings'      => [
+            'source_format'         => 'tag',
+            'listingAttributes__id' => $tagsData['id'] ?? null,
+            'listings'              => [
                 ['gigs' => $gigs],
             ],
             'appData' => [
