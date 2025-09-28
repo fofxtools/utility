@@ -82,3 +82,14 @@ This document tracks various issues encountered during development and their sol
     - In fiverr_seller_profiles: seller__agency, seller__vacation
 - Intermittent nature: seller__hourlyRate was often null, so the warning only surfaced on rows where it had a non-null array/structure.
 - Reminder: ensure_table_exists() only creates tables if missing. To apply type changes on an existing DB, run an ALTER TABLE (or drop/recreate in dev).
+
+#### Gig Position Gaps Due to Deduplication (9-27-2025)
+- **Issue**: In the `fiverr_listings_gigs` table, there are gaps in the `pos` values for a given `listingAttributes__id`.
+- **Root Cause**: `gigId` is a unique field, and the same gig can be in multiple listings. Only the first occurence is kept.
+  - Also, gigs can appear multiple times within a single listing. When the same `gigId` appears multiple times, only the first occurrence is kept.
+- **Technical Details**:
+  - `FiverrJsonImporter::extractGigFieldArrays()` deduplicates `gigId`s within a listing to prevent duplicate entries
+  - `computeListingGigFieldAverages()` uses `extractGigFieldArrays()` to compute statistics, which means position items can be missing due to deduplication
+  - In `fiverr_listings_gigs`, another listing might already have imported a gig with the same `gigId`, causing it to be skipped during subsequent imports
+- **Impact**: Position sequences like `1, 2, 4, 7, 8` instead of consecutive `1, 2, 3, 4, 5` are normal and expected behavior
+- **Note**: This is intentional behavior to prevent duplication

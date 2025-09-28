@@ -10,6 +10,9 @@ return new class () extends Migration {
         Schema::create('fiverr_listings', function (Blueprint $table) {
             $table->id();
 
+            // The source format of the listing (e.g. "category", "tag", "search")
+            $table->string('source_format')->nullable();
+
             // Category IDs
             $table->string('categoryIds__categoryId')->nullable();
             $table->string('categoryIds__subCategoryId')->nullable();
@@ -106,6 +109,7 @@ return new class () extends Migration {
             $table->unique('listingAttributes__id');
 
             // Indexes
+            $table->index('source_format');
             $table->index('v2__report__search_total_results');
             $table->index('tracking__hasFiverrChoiceGigs');
             $table->index('tracking__hasPromotedGigs');

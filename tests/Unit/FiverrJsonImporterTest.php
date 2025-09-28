@@ -36,6 +36,28 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame('::', $importer->getColumnPathDelimiter());
     }
 
+    public function test_getSetDefaultSourceFormat(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Test default value
+        $this->assertNull($importer->getDefaultSourceFormat());
+
+        // Test setting and getting values
+        $importer->setDefaultSourceFormat('category');
+        $this->assertSame('category', $importer->getDefaultSourceFormat());
+
+        $importer->setDefaultSourceFormat('search');
+        $this->assertSame('search', $importer->getDefaultSourceFormat());
+
+        $importer->setDefaultSourceFormat('tag');
+        $this->assertSame('tag', $importer->getDefaultSourceFormat());
+
+        // Test setting back to null
+        $importer->setDefaultSourceFormat(null);
+        $this->assertNull($importer->getDefaultSourceFormat());
+    }
+
     public function test_table_name_accessors(): void
     {
         $importer = new FiverrJsonImporter();
@@ -151,6 +173,63 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertIsString($mapped['user__profile__bio']);
         $this->assertSame(json_encode(['k' => 'v'], $importer->getJsonFlags()), $mapped['user__profile__bio']);
         $this->assertIsArray($mapped['processed_status']); // not JSON-encoded
+    }
+
+    public function test_extractAndEncode_source_format_no_injection_when_default_null(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // When defaultSourceFormat is null, no injection should occur
+        $data     = ['user__name' => 'Alice'];
+        $columns  = ['user__name', 'source_format'];
+        $textCols = [];
+
+        $mapped = $importer->extractAndEncode($data, $columns, $textCols);
+        $this->assertArrayHasKey('source_format', $mapped);
+        $this->assertNull($mapped['source_format']);
+    }
+
+    public function test_extractAndEncode_source_format_injects_when_default_set(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setDefaultSourceFormat('category');
+
+        // defaultSourceFormat set - auto-inject when source_format column exists but is null
+        $data     = ['user__name' => 'Alice'];
+        $columns  = ['user__name', 'source_format'];
+        $textCols = [];
+
+        $mapped = $importer->extractAndEncode($data, $columns, $textCols);
+        $this->assertArrayHasKey('source_format', $mapped);
+        $this->assertSame('category', $mapped['source_format']);
+    }
+
+    public function test_extractAndEncode_source_format_preserves_existing_value(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setDefaultSourceFormat('category');
+
+        // source_format already in data - don't override
+        $data     = ['user__name' => 'Bob', 'source_format' => 'search'];
+        $columns  = ['user__name', 'source_format'];
+        $textCols = [];
+
+        $mapped = $importer->extractAndEncode($data, $columns, $textCols);
+        $this->assertSame('search', $mapped['source_format']); // should keep original value
+    }
+
+    public function test_extractAndEncode_source_format_no_injection_when_column_not_listed(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $importer->setDefaultSourceFormat('category');
+
+        // source_format column not in columns list - no injection
+        $data     = ['user__name' => 'Alice'];
+        $columns  = ['user__name']; // source_format not included
+        $textCols = [];
+
+        $mapped = $importer->extractAndEncode($data, $columns, $textCols);
+        $this->assertArrayNotHasKey('source_format', $mapped);
     }
 
     public function test_normalizeRows_wraps_assoc_row(): void
@@ -305,6 +384,165 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
         $this->expectException(\RuntimeException::class);
         $importer->loadJsonFile('/definitely/missing/file.json');
+    }
+
+    public function test_transformTagsPageForImport_basic_transformation(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'currency'  => ['name' => 'USD', 'rate' => 1, 'symbol' => '$'],
+            'id'        => 'tag-123',
+            'status'    => 'ACTIVE',
+            'name'      => '1000 seo backlinks',
+            'slug'      => '1000-seo-backlinks',
+            'numOfGigs' => 48,
+            'gigs'      => [
+                [
+                    'gigId'                  => 374638030,
+                    'category_id'            => 2,
+                    'sub_category_id'        => 65,
+                    'nested_sub_category_id' => 2155,
+                    'title'                  => 'Test gig',
+                ],
+                [
+                    'gigId'                  => 123456789,
+                    'category_id'            => 3,
+                    'sub_category_id'        => 70,
+                    'nested_sub_category_id' => 2200,
+                    'title'                  => 'Another gig',
+                ],
+            ],
+            'classification' => ['type' => 'TAG_PAGE', 'key' => '1000 seo backlinks'],
+            'relatedLinks'   => [],
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        // Test required transformations
+        $this->assertSame('tag', $result['source_format']);
+        $this->assertArrayHasKey('listings', $result);
+        $this->assertCount(1, $result['listings']);
+        $this->assertArrayHasKey('gigs', $result['listings'][0]);
+        $this->assertCount(2, $result['listings'][0]['gigs']);
+        $this->assertSame($tagsData['gigs'], $result['listings'][0]['gigs']);
+
+        // Test pagination mapping
+        $this->assertArrayHasKey('appData', $result);
+        $this->assertArrayHasKey('pagination', $result['appData']);
+        $this->assertSame(48, $result['appData']['pagination']['total']);
+
+        // Test category mapping from first gig
+        $this->assertArrayHasKey('categoryIds', $result);
+        $this->assertSame(2, $result['categoryIds']['categoryId']);
+        $this->assertSame(65, $result['categoryIds']['subCategoryId']);
+        $this->assertSame(2155, $result['categoryIds']['nestedSubCategoryId']);
+
+        // Test that original data is preserved
+        $this->assertSame($tagsData['currency'], $result['currency']);
+        $this->assertSame($tagsData['id'], $result['id']);
+        $this->assertSame($tagsData['status'], $result['status']);
+        $this->assertSame($tagsData['name'], $result['name']);
+        $this->assertSame($tagsData['slug'], $result['slug']);
+        $this->assertSame($tagsData['classification'], $result['classification']);
+        $this->assertSame($tagsData['relatedLinks'], $result['relatedLinks']);
+    }
+
+    public function test_transformTagsPageForImport_empty_gigs(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'numOfGigs' => 0,
+            'gigs'      => [],
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        $this->assertSame('tag', $result['source_format']);
+        $this->assertCount(1, $result['listings']);
+        $this->assertSame([], $result['listings'][0]['gigs']);
+        $this->assertSame(0, $result['appData']['pagination']['total']);
+        $this->assertArrayNotHasKey('categoryIds', $result);
+    }
+
+    public function test_transformTagsPageForImport_missing_gigs_array(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'numOfGigs' => 10,
+            // 'gigs' key missing
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        $this->assertSame('tag', $result['source_format']);
+        $this->assertCount(1, $result['listings']);
+        $this->assertSame([], $result['listings'][0]['gigs']);
+        $this->assertSame(10, $result['appData']['pagination']['total']);
+        $this->assertArrayNotHasKey('categoryIds', $result);
+    }
+
+    public function test_transformTagsPageForImport_missing_category_fields(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'numOfGigs' => 1,
+            'gigs'      => [
+                [
+                    'gigId' => 123,
+                    // category fields missing
+                    'title' => 'Test gig',
+                ],
+            ],
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        $this->assertSame('tag', $result['source_format']);
+        $this->assertArrayHasKey('categoryIds', $result);
+        $this->assertNull($result['categoryIds']['categoryId']);
+        $this->assertNull($result['categoryIds']['subCategoryId']);
+        $this->assertNull($result['categoryIds']['nestedSubCategoryId']);
+    }
+
+    public function test_transformTagsPageForImport_missing_numOfGigs(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'gigs' => [
+                ['gigId' => 123, 'title' => 'Test gig'],
+            ],
+            // 'numOfGigs' missing
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        $this->assertSame('tag', $result['source_format']);
+        $this->assertNull($result['appData']['pagination']['total']);
+        $this->assertCount(1, $result['listings'][0]['gigs']);
+    }
+
+    public function test_transformTagsPageForImport_overwrites_existing_keys(): void
+    {
+        $importer = new FiverrJsonImporter();
+        $tagsData = [
+            'source_format' => 'category', // Should be overwritten to 'tag'
+            'listings'      => 'invalid',  // Should be overwritten by wrapped gigs array
+            'appData'       => 'invalid',  // Should be overwritten by numOfGigs value
+            'categoryIds'   => 'invalid',  // Should be overwritten by first gig's category IDs
+            'gigs'          => [['gigId' => 123, 'category_id' => 2, 'sub_category_id' => 65]],
+            'numOfGigs'     => 1,
+        ];
+
+        $result = $importer->transformTagsPageForImport($tagsData);
+
+        $this->assertSame('tag', $result['source_format']); // Overwritten
+        $this->assertIsArray($result['listings']);          // Overwritten
+        $this->assertIsArray($result['appData']);           // Overwritten
+        $this->assertIsArray($result['categoryIds']);       // Overwritten
+        $this->assertCount(1, $result['listings']);
+        $this->assertSame(1, $result['appData']['pagination']['total']);
+        $this->assertSame(2, $result['categoryIds']['categoryId']);
+        $this->assertSame(65, $result['categoryIds']['subCategoryId']);
     }
 
     public function test_importListingsFromArray_inserts_row(): void
@@ -1913,6 +2151,7 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
 
         $row = [
+            'currency__rate'                               => 1.0,
             'avg___overview__gig__ordersInQueue'           => 10,
             'avg___seo__description__deliveryTime'         => 2,
             'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
@@ -1924,7 +2163,7 @@ class FiverrJsonImporterTest extends TestCase
 
         $scores = $importer->computeScoresForStatsRow($row);
 
-        $expectedScore1 = (10.0 / 2.0) * 100.0; // 500.0
+        $expectedScore1 = (10.0 / 2.0) * 100.0 * 1.0; // 500.0
         $expectedScore2 = 4.8 * log(100) * (2 * 2);
         $expectedScore3 = $expectedScore1 / $expectedScore2;
 
@@ -1942,6 +2181,7 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
 
         $row = [
+            'currency__rate'                               => 1.0,
             'avg___overview__gig__ordersInQueue'           => 10,
             'avg___seo__description__deliveryTime'         => 0, // invalid
             'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
@@ -1962,11 +2202,59 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertNull($scores['score_5']);
     }
 
+    public function test_computeScoresForStatsRow_score1_null_when_currency_rate_missing(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            // currency__rate is missing
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel___adjusted'         => 2,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $this->assertNull($scores['score_1']); // Should be null due to missing currency__rate
+        // score_2 should still compute since it doesn't need currency__rate
+        $this->assertSame(4.8 * log(100) * (2 * 2), $scores['score_2']);
+        $this->assertNull($scores['score_3']); // since score_1 is null
+    }
+
+    public function test_computeScoresForStatsRow_score1_with_currency_rate_multiplication(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        $row = [
+            'currency__rate'                               => 1.5, // Non-unity currency rate
+            'avg___overview__gig__ordersInQueue'           => 10,
+            'avg___seo__description__deliveryTime'         => 2,
+            'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
+            'avg___overview__gig__rating'                  => 4.8,
+            'avg___overview__gig__ratingsCount'            => 100,
+            'avg___seller__sellerLevel___adjusted'         => 2,
+        ];
+
+        $scores = $importer->computeScoresForStatsRow($row);
+
+        $expectedScore1 = (10.0 / 2.0) * 100.0 * 1.5; // 750.0
+        $expectedScore2 = 4.8 * log(100) * (2 * 2);
+        $expectedScore3 = $expectedScore1 / $expectedScore2;
+
+        $this->assertSame($expectedScore1, $scores['score_1']);
+        $this->assertSame($expectedScore2, $scores['score_2']);
+        $this->assertSame($expectedScore3, $scores['score_3']);
+    }
+
     public function test_computeScoresForStatsRow_score2_null_on_invalid_ratingsCount(): void
     {
         $importer = new FiverrJsonImporter();
 
         $row = [
+            'currency__rate'                               => 1.0,
             'avg___overview__gig__ordersInQueue'           => 10,
             'avg___seo__description__deliveryTime'         => 2,
             'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
@@ -1977,7 +2265,7 @@ class FiverrJsonImporterTest extends TestCase
 
         $scores = $importer->computeScoresForStatsRow($row);
 
-        $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
+        $this->assertSame((10.0 / 2.0) * 100.0 * 1.0, $scores['score_1']);
         $this->assertNull($scores['score_2']);
         $this->assertNull($scores['score_3']);
 
@@ -1991,6 +2279,7 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
 
         $row = [
+            'currency__rate'                               => 1.0,
             'avg___overview__gig__ordersInQueue'           => 10,
             'avg___seo__description__deliveryTime'         => 2,
             'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
@@ -2001,7 +2290,7 @@ class FiverrJsonImporterTest extends TestCase
 
         $scores = $importer->computeScoresForStatsRow($row);
 
-        $this->assertSame((10.0 / 2.0) * 100.0, $scores['score_1']);
+        $this->assertSame((10.0 / 2.0) * 100.0 * 1.0, $scores['score_1']);
         $this->assertSame(0.0, $scores['score_2']);
         $this->assertNull($scores['score_3']);
 
@@ -2015,6 +2304,7 @@ class FiverrJsonImporterTest extends TestCase
         $importer = new FiverrJsonImporter();
 
         $row = [
+            'currency__rate'                               => 1.0,
             'avg___overview__gig__ordersInQueue'           => 10,
             'avg___seo__description__deliveryTime'         => 2,
             'avg___seo__schemaMarkup__gigOffers__lowPrice' => 100,
@@ -2026,7 +2316,7 @@ class FiverrJsonImporterTest extends TestCase
 
         $scores = $importer->computeScoresForStatsRow($row);
 
-        $expectedScore1 = (10.0 / 2.0) * 100.0; // 500
+        $expectedScore1 = (10.0 / 2.0) * 100.0 * 1.0; // 500
         $this->assertSame($expectedScore1 / 400.0, $scores['score_4']);
         $this->assertSame($expectedScore1 / sqrt(400.0), $scores['score_5']);
     }
@@ -2093,6 +2383,7 @@ class FiverrJsonImporterTest extends TestCase
         ]);
 
         DB::table($importer->getFiverrListingsTable())->insert([
+            'currency__rate'          => 1.0,
             'listingAttributes__id'   => $listingId,
             'listings'                => $listingsPayload,
             'stats_processed_at'      => now(), // candidate

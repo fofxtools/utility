@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Storage;
 class TestCase extends Orchestra
 {
     // Use constant (not instance property) for access in both static setUpBeforeClass() and instance methods
-    protected const PSL_FILENAME          = 'public_suffix_list.dat';
-    private static bool $pslSetupComplete = false;
+    protected const PSL_FILENAME            = 'public_suffix_list.dat';
+    protected static bool $pslSetupComplete = false;
 
     public static function setUpBeforeClass(): void
     {
@@ -24,7 +24,7 @@ class TestCase extends Orchestra
         }
     }
 
-    private function setupPslFile(): void
+    protected function setupPslFile(): void
     {
         $localPslPath = dirname(__DIR__) . '/local/resources/' . self::PSL_FILENAME;
         if (file_exists($localPslPath)) {

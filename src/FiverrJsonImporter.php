@@ -18,9 +18,10 @@ use Illuminate\Support\Facades\Cache;
  */
 class FiverrJsonImporter
 {
-    protected array $excludedColumns      = ['id', 'created_at', 'updated_at', 'processed_at', 'processed_status'];
-    protected int $jsonFlags              = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
-    protected string $columnPathDelimiter = '__';
+    protected array $excludedColumns       = ['id', 'created_at', 'updated_at', 'processed_at', 'processed_status'];
+    protected int $jsonFlags               = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+    protected string $columnPathDelimiter  = '__';
+    protected ?string $defaultSourceFormat = null;
 
     protected string $fiverrListingsTable       = 'fiverr_listings';
     protected string $fiverrGigsTable           = 'fiverr_gigs';
@@ -62,6 +63,16 @@ class FiverrJsonImporter
     public function setColumnPathDelimiter(string $columnPathDelimiter): void
     {
         $this->columnPathDelimiter = $columnPathDelimiter;
+    }
+
+    public function getDefaultSourceFormat(): ?string
+    {
+        return $this->defaultSourceFormat;
+    }
+
+    public function setDefaultSourceFormat(?string $defaultSourceFormat): void
+    {
+        $this->defaultSourceFormat = $defaultSourceFormat;
     }
 
     public function getFiverrListingsTable(): string
@@ -275,6 +286,14 @@ class FiverrJsonImporter
     {
         $mapped = extract_values_by_paths($data, $columns, $this->columnPathDelimiter);
 
+        // Auto-inject source_format if we have a default and column exists
+        if ($this->defaultSourceFormat !== null && in_array('source_format', $columns, true)) {
+            // Don't override existing values in source data
+            if (!array_key_exists('source_format', $mapped) || $mapped['source_format'] === null) {
+                $mapped['source_format'] = $this->defaultSourceFormat;
+            }
+        }
+
         // Encode complex values for text columns (except processed_status)
         $encodeSet = array_values(array_diff($textColumns, ['processed_status']));
         foreach ($encodeSet as $col) {
@@ -380,6 +399,46 @@ class FiverrJsonImporter
         }
 
         return $this->loadJsonString($raw);
+    }
+
+    /**
+     * Transform Fiverr tags page JSON into a format compatible with importListingsFromArray().
+     *
+     * Converts the direct gigs array structure from tags pages into the nested listings
+     * structure expected by the import process.
+     *
+     * @param array<string,mixed> $tagsData Decoded JSON from a Fiverr tags page
+     *
+     * @return array<string,mixed> Transformed data compatible with importListingsFromArray()
+     */
+    public function transformTagsPageForImport(array $tagsData): array
+    {
+        $gigs     = $tagsData['gigs'] ?? [];
+        $firstGig = $gigs[0] ?? [];
+
+        $transformed = [
+            'source_format' => 'tag',
+            'listings'      => [
+                ['gigs' => $gigs],
+            ],
+            'appData' => [
+                'pagination' => [
+                    'total' => $tagsData['numOfGigs'] ?? null,
+                ],
+            ],
+        ];
+
+        // Map first gig's category IDs if available
+        if (!empty($firstGig)) {
+            $transformed['categoryIds'] = [
+                'categoryId'          => $firstGig['category_id'] ?? null,
+                'subCategoryId'       => $firstGig['sub_category_id'] ?? null,
+                'nestedSubCategoryId' => $firstGig['nested_sub_category_id'] ?? null,
+            ];
+        }
+
+        // Pass everything else as-is - unused fields will be ignored
+        return array_merge($tagsData, $transformed);
     }
 
     /**
@@ -1801,6 +1860,7 @@ class FiverrJsonImporter
      * Compute score_1, score_2, score_3 for a stats row using avg___ columns.
      *
      * Inputs used (from fiverr_listings_stats):
+     * - currency__rate
      * - avg___overview__gig__ordersInQueue
      * - avg___seo__description__deliveryTime
      * - avg___seo__schemaMarkup__gigOffers__lowPrice
@@ -1819,6 +1879,12 @@ class FiverrJsonImporter
      * - score_3 = score_1 / score_2
      *   - Null if score_1 is null or score_2 is null
      *   - Null if score_2 == 0 (avoid divide-by-zero)
+     * - score_4 = score_1 / paginationTotal
+     *   - Null if score_1 is null or paginationTotal is null
+     *   - Null if paginationTotal <= 0 (avoid divide-by-zero)
+     * - score_5 = score_1 / sqrt(paginationTotal)
+     *   - Null if score_1 is null or paginationTotal is null
+     *   - Null if paginationTotal <= 0 (avoid divide-by-zero)
      *
      * All numeric-like strings are coerced to float; non-numeric strings are treated as null.
      *
@@ -1850,6 +1916,7 @@ class FiverrJsonImporter
             return null;
         };
 
+        $currencyRate        = $toFloat($statsRow['currency__rate'] ?? null);
         $ordersInQueue       = $toFloat($statsRow['avg___overview__gig__ordersInQueue'] ?? null);
         $deliveryDays        = $toFloat($statsRow['avg___seo__description__deliveryTime'] ?? null);
         $lowPrice            = $toFloat($statsRow['avg___seo__schemaMarkup__gigOffers__lowPrice'] ?? null);
@@ -1861,9 +1928,9 @@ class FiverrJsonImporter
 
         // score_1
         $score1 = null;
-        if ($ordersInQueue !== null && $deliveryDays !== null && $lowPrice !== null) {
+        if ($ordersInQueue !== null && $deliveryDays !== null && $lowPrice !== null && $currencyRate !== null) {
             if ($deliveryDays > 0.0) {
-                $score1 = ($ordersInQueue / $deliveryDays) * $lowPrice;
+                $score1 = ($ordersInQueue / $deliveryDays) * $lowPrice * $currencyRate;
             } else {
                 $score1 = null;
             }
@@ -1946,7 +2013,7 @@ class FiverrJsonImporter
             ->whereNull('l.gigs_stats_processed_at')
             ->whereNotNull('lg.processed_at')
             ->orderBy('l.id', 'asc')
-            ->select(['l.id', 'l.listingAttributes__id', 'l.appData__pagination__total'])
+            ->select(['l.id', 'l.currency__rate', 'l.listingAttributes__id', 'l.appData__pagination__total'])
             ->distinct()
             ->limit($batchSize)
             ->get();
@@ -2004,7 +2071,8 @@ class FiverrJsonImporter
                 $update['avg___' . $field] = $avg;
             }
 
-            // Include pagination total from listings so computeScoresForStatsRow can use it later
+            // Include currency rate and pagination total from listings so computeScoresForStatsRow can use them later
+            $update['currency__rate']             = $r->currency__rate ?? null;
             $update['appData__pagination__total'] = $r->appData__pagination__total ?? null;
 
             // Compute scores from the avg___ fields
