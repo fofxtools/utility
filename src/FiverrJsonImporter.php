@@ -408,7 +408,7 @@ class FiverrJsonImporter
      * structure expected by the import process.
      *
      * - Sets source_format to 'tag'
-     * - Sets listingAttributes__id to the tag's 'id'
+     * - Sets listingAttributes.id to the tag's 'id'
      * - Wraps the gigs array in a listings array
      * - Sets appData.pagination.total to numOfGigs
      * - Extracts category IDs from the first gig and sets them in categoryIds
@@ -423,9 +423,11 @@ class FiverrJsonImporter
         $firstGig = $gigs[0] ?? [];
 
         $transformed = [
-            'source_format'         => 'tag',
-            'listingAttributes__id' => $tagsData['id'] ?? null,
-            'listings'              => [
+            'source_format'     => 'tag',
+            'listingAttributes' => [
+                'id' => $tagsData['id'] ?? null,
+            ],
+            'listings' => [
                 ['gigs' => $gigs],
             ],
             'appData' => [
