@@ -739,7 +739,7 @@ class FiverrJsonImporter
                 'displayData__name'                  => $r->displayData__name ?? null,
             ];
 
-            $batch = [];
+            $rowsToInsert = [];
             foreach ($gigs as $g) {
                 $row = $this->extractAndEncode($g, $targetColumns, $targetTextCols);
 
@@ -747,12 +747,12 @@ class FiverrJsonImporter
                     $row[$col] = $val;
                 }
 
-                $batch[] = $row;
+                $rowsToInsert[] = $row;
             }
 
             $ins = 0;
-            if (!empty($batch)) {
-                $res = $this->insertRows($this->fiverrListingsGigsTable, $batch);
+            if (!empty($rowsToInsert)) {
+                $res = $this->insertRows($this->fiverrListingsGigsTable, $rowsToInsert);
                 $ins = (int) $res['inserted'];
             }
 
@@ -2156,5 +2156,249 @@ class FiverrJsonImporter
         Log::debug('Completed processGigsStatsAll', $total);
 
         return $total;
+    }
+
+    /**
+     * Build a category mapping from fiverr_listings rows with source_format='category'.
+     *
+     * Returns an array with category path as key (pipe-delimited) and category information as value.
+     * The key format is: 'categoryId|subCategoryId|nestedSubCategoryId' (uses 'null' string for NULL values)
+     *
+     * @return array<string,array{categoryName:string|null,subCategoryName:string|null,nestedSubCategoryName:string|null,cachedSlug:string|null}>
+     */
+    public function buildCategoryMap(): array
+    {
+        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
+
+        $map = [];
+
+        $rows = DB::table($this->fiverrListingsTable)
+            ->select([
+                'categoryIds__categoryId',
+                'categoryIds__subCategoryId',
+                'categoryIds__nestedSubCategoryId',
+                'displayData__categoryName',
+                'displayData__subCategoryName',
+                'displayData__nestedSubCategoryName',
+                'displayData__cachedSlug',
+            ])
+            ->where('source_format', 'category')
+            ->whereNotNull('categoryIds__categoryId')
+            ->whereNotNull('displayData__categoryName')
+            ->get();
+
+        foreach ($rows as $row) {
+            $categoryId          = $row->categoryIds__categoryId ?? null;
+            $subCategoryId       = $row->categoryIds__subCategoryId ?? null;
+            $nestedSubCategoryId = $row->categoryIds__nestedSubCategoryId ?? null;
+
+            // Create pipe-delimited key (use 'null' string for null values)
+            $key = ($categoryId ?? 'null') . '|' . ($subCategoryId ?? 'null') . '|' . ($nestedSubCategoryId ?? 'null');
+
+            // Store category information
+            $map[$key] = [
+                'categoryName'          => $row->displayData__categoryName ?? null,
+                'subCategoryName'       => $row->displayData__subCategoryName ?? null,
+                'nestedSubCategoryName' => $row->displayData__nestedSubCategoryName ?? null,
+                'cachedSlug'            => $row->displayData__cachedSlug ?? null,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Fill missing category data for a specific table.
+     *
+     * @param string                                                                                                                             $tableName             The table to update
+     * @param array<string,array{categoryName:string|null,subCategoryName:string|null,nestedSubCategoryName:string|null,cachedSlug:string|null}> $categoryMap
+     * @param array<int,string>                                                                                                                  $categoryIdColumns     Column names for category IDs [categoryId, subCategoryId, nestedSubCategoryId]
+     * @param array<string,array{categoryId:int|string,subCategoryId:int|string,nestedSubCategoryId:int|string}>                                 &$unmappedCombinations Reference to collect unmapped combinations
+     *
+     * @return array{updated:int,unmapped:int}
+     */
+    public function fillMissingCategoryDataForTable(
+        string $tableName,
+        array $categoryMap,
+        array $categoryIdColumns,
+        array &$unmappedCombinations
+    ): array {
+        $updated     = 0;
+        $unmapped    = 0;
+        $batchSize   = 1000;
+        $batchNumber = 0;
+
+        Log::debug('Filling missing category data for table', ['table' => $tableName]);
+
+        // Build base query - use missing displayData__categoryName as proxy for missing category data
+        $baseQuery = DB::table($tableName)
+            ->whereNotNull($categoryIdColumns[0]) // categoryId must exist
+            ->whereNull('displayData__categoryName'); // Proxy to identify missing category data
+
+        // For fiverr_listings, exclude source_format='category' rows since they are the source of truth
+        if ($tableName === $this->fiverrListingsTable) {
+            $baseQuery->where('source_format', '!=', 'category');
+        }
+
+        // Process in batches to avoid memory issues
+        $baseQuery->orderBy('id')->chunkById($batchSize, function ($rows) use (
+            $tableName,
+            $categoryMap,
+            $categoryIdColumns,
+            &$unmappedCombinations,
+            &$updated,
+            &$unmapped,
+            &$batchNumber
+        ) {
+            $updates = [];
+            $batchNumber++;
+
+            foreach ($rows as $row) {
+                $categoryId          = $row->{$categoryIdColumns[0]} ?? null;
+                $subCategoryId       = $row->{$categoryIdColumns[1]} ?? null;
+                $nestedSubCategoryId = $row->{$categoryIdColumns[2]} ?? null;
+
+                // Create key for lookup (use 'null' string for null values)
+                $key = ($categoryId ?? 'null') . '|' . ($subCategoryId ?? 'null') . '|' . ($nestedSubCategoryId ?? 'null');
+
+                if (isset($categoryMap[$key])) {
+                    $categoryInfo = $categoryMap[$key];
+
+                    // Build row for upsert
+                    $updateRow = ['id' => $row->id];
+
+                    if (is_null($row->displayData__categoryName) && !is_null($categoryInfo['categoryName'])) {
+                        $updateRow['displayData__categoryName'] = $categoryInfo['categoryName'];
+                    }
+                    if (is_null($row->displayData__subCategoryName) && !is_null($categoryInfo['subCategoryName'])) {
+                        $updateRow['displayData__subCategoryName'] = $categoryInfo['subCategoryName'];
+                    }
+                    if (is_null($row->displayData__nestedSubCategoryName) && !is_null($categoryInfo['nestedSubCategoryName'])) {
+                        $updateRow['displayData__nestedSubCategoryName'] = $categoryInfo['nestedSubCategoryName'];
+                    }
+                    if (is_null($row->displayData__cachedSlug) && !is_null($categoryInfo['cachedSlug'])) {
+                        $updateRow['displayData__cachedSlug'] = $categoryInfo['cachedSlug'];
+                    }
+
+                    if (count($updateRow) > 1) { // More than just 'id'
+                        $updates[] = $updateRow;
+                    }
+                } else {
+                    // Track unmapped combination (reuse $key variable)
+                    if (!isset($unmappedCombinations[$key])) {
+                        $unmappedCombinations[$key] = [
+                            'categoryId'          => $categoryId,
+                            'subCategoryId'       => $subCategoryId,
+                            'nestedSubCategoryId' => $nestedSubCategoryId,
+                        ];
+                    }
+                    $unmapped++;
+                }
+            }
+
+            // Individual updates per row (N+1 performance trade-off accepted)
+            // We avoid batch operations because:
+            // - upsert() fails when INSERT hits NOT NULL constraints on missing required fields
+            // - CASE statement complexity not worth it for infrequent runs
+            foreach ($updates as $updateRow) {
+                $id = $updateRow['id'];
+                unset($updateRow['id']);
+                if (!empty($updateRow)) {
+                    DB::table($tableName)->where('id', $id)->update($updateRow);
+                    $updated++;
+                }
+            }
+        });
+
+        Log::debug('Completed filling missing category data for table', [
+            'table'         => $tableName,
+            'total_batches' => $batchNumber,
+            'updated'       => $updated,
+            'unmapped'      => $unmapped,
+        ]);
+
+        return ['updated' => $updated, 'unmapped' => $unmapped];
+    }
+
+    /**
+     * Fill missing category data in fiverr_listings, fiverr_listings_gigs, and fiverr_listings_stats tables.
+     *
+     * Uses the category map built from source_format='category' rows to fill in missing category names
+     * and slugs for rows that have category IDs but missing display data.
+     *
+     * @return array{fiverr_listings:array{updated:int,unmapped:int},fiverr_listings_stats:array{updated:int,unmapped:int},fiverr_listings_gigs:array{updated:int,unmapped:int},total_updated:int,total_unmapped:int,unmapped_combinations:array<int,array{categoryId:int|string|null,subCategoryId:int|string|null,nestedSubCategoryId:int|string|null}>}
+     */
+    public function fillMissingCategoryData(): array
+    {
+        ensure_table_exists($this->fiverrListingsTable, $this->fiverrListingsMigrationPath);
+        ensure_table_exists($this->fiverrListingsStatsTable, $this->fiverrListingsStatsMigrationPath);
+        ensure_table_exists($this->fiverrListingsGigsTable, $this->fiverrListingsGigsMigrationPath);
+
+        Log::debug('Starting fillMissingCategoryData...');
+
+        $categoryMap = $this->buildCategoryMap();
+        $stats       = [
+            'fiverr_listings'       => ['updated' => 0, 'unmapped' => 0],
+            'fiverr_listings_stats' => ['updated' => 0, 'unmapped' => 0],
+            'fiverr_listings_gigs'  => ['updated' => 0, 'unmapped' => 0],
+            'total_updated'         => 0,
+            'total_unmapped'        => 0,
+            'unmapped_combinations' => [],
+        ];
+
+        $unmappedCombinations = [];
+
+        // Process fiverr_listings table
+        $listingsStats = $this->fillMissingCategoryDataForTable(
+            $this->fiverrListingsTable,
+            $categoryMap,
+            [
+                'categoryIds__categoryId',
+                'categoryIds__subCategoryId',
+                'categoryIds__nestedSubCategoryId',
+            ],
+            $unmappedCombinations
+        );
+        $stats['fiverr_listings'] = $listingsStats;
+
+        // Process fiverr_listings_stats table
+        $listingsStatsStats = $this->fillMissingCategoryDataForTable(
+            $this->fiverrListingsStatsTable,
+            $categoryMap,
+            [
+                'categoryIds__categoryId',
+                'categoryIds__subCategoryId',
+                'categoryIds__nestedSubCategoryId',
+            ],
+            $unmappedCombinations
+        );
+        $stats['fiverr_listings_stats'] = $listingsStatsStats;
+
+        // Process fiverr_listings_gigs table (different column names)
+        $listingsGigsStats = $this->fillMissingCategoryDataForTable(
+            $this->fiverrListingsGigsTable,
+            $categoryMap,
+            [
+                'category_id',
+                'sub_category_id',
+                'nested_sub_category_id',
+            ],
+            $unmappedCombinations
+        );
+        $stats['fiverr_listings_gigs'] = $listingsGigsStats;
+
+        // Calculate totals
+        $stats['total_updated'] = $stats['fiverr_listings']['updated'] +
+                                  $stats['fiverr_listings_stats']['updated'] +
+                                  $stats['fiverr_listings_gigs']['updated'];
+        $stats['total_unmapped'] = $stats['fiverr_listings']['unmapped'] +
+                                   $stats['fiverr_listings_stats']['unmapped'] +
+                                   $stats['fiverr_listings_gigs']['unmapped'];
+
+        $stats['unmapped_combinations'] = array_values($unmappedCombinations);
+
+        Log::debug('Completed fillMissingCategoryData', $stats);
+
+        return $stats;
     }
 }

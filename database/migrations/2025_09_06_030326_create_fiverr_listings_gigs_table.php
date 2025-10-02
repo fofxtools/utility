@@ -11,7 +11,7 @@ return new class () extends Migration {
             $table->id();
 
             // Core gig identification
-            $table->integer('gigId')->unique();
+            $table->integer('gigId');
             $table->string('listingAttributes__id')->nullable();
             $table->integer('pos')->nullable();
             $table->string('type')->nullable();
@@ -86,8 +86,11 @@ return new class () extends Migration {
             $table->timestamp('processed_at')->nullable();
             $table->text('processed_status')->nullable();
 
+            // Unique index on listingAttributes__id and gigId
+            $table->unique(['listingAttributes__id', 'gigId']);
+
             // Indexes
-            $table->index('listingAttributes__id');
+            $table->index('gigId');
             $table->index('pos');
             $table->index('type');
             $table->index('is_fiverr_choice');

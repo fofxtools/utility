@@ -1013,40 +1013,6 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertNotNull($listing->processed_status);
     }
 
-    public function test_processListingsGigsAll_dedupes_duplicate_gigs_across_listings(): void
-    {
-        $importer = new FiverrJsonImporter();
-
-        // Helper function to make a payload based on gigId
-        $makePayload = function (string $id, int $gigId): array {
-            return [
-                'listingAttributes' => ['id' => $id],
-                'listings'          => [['gigs' => [['gigId' => $gigId, 'title' => 'T' . $gigId]]]],
-            ];
-        };
-        // Two listings referencing the same gigId
-        $p1 = $makePayload('D1', 9901);
-        $p2 = $makePayload('D2', 9901);
-
-        foreach ([$p1, $p2] as $p) {
-            $json = tempnam(sys_get_temp_dir(), 'importer_json_');
-            file_put_contents($json, json_encode($p));
-
-            try {
-                $importer->importListingsFromFile($json);
-            } finally {
-                unlink($json);
-            }
-        }
-
-        $stats = $importer->processListingsGigsAll(5);
-        $this->assertSame(2, $stats['rows_processed']);
-        $this->assertSame(2, DB::table($importer->getFiverrListingsTable())->whereNotNull('processed_at')->count());
-
-        // Only one row for the duplicate gigId due to unique+insertOrIgnore
-        $this->assertSame(1, DB::table($importer->getFiverrListingsGigsTable())->where('gigId', 9901)->count());
-    }
-
     public static function provider_getSellerLevelNumeric(): array
     {
         return [
@@ -2785,5 +2751,598 @@ class FiverrJsonImporterTest extends TestCase
                 ->first();
             $this->assertNotNull($lrow->{'gigs_stats_processed_at'});
         }
+    }
+
+    public function test_buildCategoryMap_empty_table(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Ensure table exists but is empty
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        $map = $importer->buildCategoryMap();
+
+        $this->assertEmpty($map);
+    }
+
+    public function test_buildCategoryMap_with_category_data(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear table and insert test data
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        // Insert test category listings
+        $testData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'test-1',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Graphics & Design',
+                'displayData__subCategoryName'       => 'Logo Design',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'creative-logo-design',
+            ],
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'test-2',
+                'categoryIds__categoryId'            => '5',
+                'categoryIds__subCategoryId'         => '121',
+                'categoryIds__nestedSubCategoryId'   => '456',
+                'displayData__categoryName'          => 'Digital Marketing',
+                'displayData__subCategoryName'       => 'SEO',
+                'displayData__nestedSubCategoryName' => 'Local SEO',
+                'displayData__cachedSlug'            => 'local-seo-services',
+            ],
+            [
+                'source_format'                      => 'tag', // Should be ignored
+                'listingAttributes__id'              => 'test-3',
+                'categoryIds__categoryId'            => '10',
+                'categoryIds__subCategoryId'         => '97',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Programming & Tech',
+                'displayData__subCategoryName'       => 'Web Development',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'web-development',
+            ],
+        ];
+
+        $importer->insertRows($importer->getFiverrListingsTable(), $testData);
+
+        $map = $importer->buildCategoryMap();
+
+        $this->assertCount(2, $map); // Only category source_format entries
+
+        // Test first entry
+        $this->assertArrayHasKey('3|49|null', $map);
+        $entry1 = $map['3|49|null'];
+        $this->assertEquals('Graphics & Design', $entry1['categoryName']);
+        $this->assertEquals('Logo Design', $entry1['subCategoryName']);
+        $this->assertNull($entry1['nestedSubCategoryName']);
+        $this->assertEquals('creative-logo-design', $entry1['cachedSlug']);
+
+        // Test second entry
+        $this->assertArrayHasKey('5|121|456', $map);
+        $entry2 = $map['5|121|456'];
+        $this->assertEquals('Digital Marketing', $entry2['categoryName']);
+        $this->assertEquals('SEO', $entry2['subCategoryName']);
+        $this->assertEquals('Local SEO', $entry2['nestedSubCategoryName']);
+        $this->assertEquals('local-seo-services', $entry2['cachedSlug']);
+
+        // Test that tag entry was ignored
+        $this->assertArrayNotHasKey('10|97|null', $map);
+    }
+
+    public function test_buildCategoryMap_handles_null_values(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear table and insert test data with null values
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        $testData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'test-null',
+                'categoryIds__categoryId'            => '7',
+                'categoryIds__subCategoryId'         => null,
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Music & Audio',
+                'displayData__subCategoryName'       => null,
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null,
+            ],
+        ];
+
+        $importer->insertRows($importer->getFiverrListingsTable(), $testData);
+
+        $map = $importer->buildCategoryMap();
+
+        $this->assertCount(1, $map);
+
+        // Test entry with null values (should use 'null' string for null IDs)
+        $this->assertArrayHasKey('7|null|null', $map);
+        $entry = $map['7|null|null'];
+        $this->assertEquals('Music & Audio', $entry['categoryName']);
+        $this->assertNull($entry['subCategoryName']);
+        $this->assertNull($entry['nestedSubCategoryName']);
+        $this->assertNull($entry['cachedSlug']);
+    }
+
+    public function test_fillMissingCategoryDataForTable_with_listings_table(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear table and insert test data
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        // Insert category source data
+        $categoryData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'cat-source',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Graphics & Design',
+                'displayData__subCategoryName'       => 'Logo Design',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'creative-logo-design',
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $categoryData);
+
+        // Insert data with missing category info
+        $testData = [
+            [
+                'source_format'                      => 'tag',
+                'listingAttributes__id'              => 'test-missing',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => null, // Missing
+                'displayData__subCategoryName'       => 'Existing Sub', // Has value
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null, // Missing
+            ],
+            [
+                'source_format'                      => 'search',
+                'listingAttributes__id'              => 'test-complete',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Already Set', // Already has value
+                'displayData__subCategoryName'       => 'Already Set Sub',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'already-set-slug',
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $testData);
+
+        // Build category map and test the public method
+        $categoryMap          = $importer->buildCategoryMap();
+        $unmappedCombinations = [];
+
+        $result = $importer->fillMissingCategoryDataForTable(
+            $importer->getFiverrListingsTable(),
+            $categoryMap,
+            ['categoryIds__categoryId', 'categoryIds__subCategoryId', 'categoryIds__nestedSubCategoryId'],
+            $unmappedCombinations
+        );
+
+        $this->assertEquals(1, $result['updated']); // Only one row should be updated
+        $this->assertEquals(0, $result['unmapped']);
+
+        // Verify the data was updated correctly
+        $updatedRow = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', 'test-missing')
+            ->first();
+
+        $this->assertEquals('Graphics & Design', $updatedRow->displayData__categoryName); // Updated
+        $this->assertEquals('Existing Sub', $updatedRow->displayData__subCategoryName); // Unchanged (not null)
+        $this->assertEquals('creative-logo-design', $updatedRow->displayData__cachedSlug); // Updated
+
+        // Verify the complete row was not touched (it has categoryName so wasn't selected by the query)
+        $completeRow = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', 'test-complete')
+            ->first();
+
+        $this->assertEquals('Already Set', $completeRow->displayData__categoryName); // Unchanged
+    }
+
+    public function test_fillMissingCategoryDataForTable_with_gigs_table(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear tables
+        DB::table($importer->getFiverrListingsTable())->truncate();
+        DB::table($importer->getFiverrListingsGigsTable())->truncate();
+
+        // Insert category source data in listings table
+        $categoryData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'cat-source',
+                'categoryIds__categoryId'            => '5',
+                'categoryIds__subCategoryId'         => '121',
+                'categoryIds__nestedSubCategoryId'   => '456',
+                'displayData__categoryName'          => 'Digital Marketing',
+                'displayData__subCategoryName'       => 'SEO',
+                'displayData__nestedSubCategoryName' => 'Local SEO',
+                'displayData__cachedSlug'            => 'local-seo-services',
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $categoryData);
+
+        // Insert gigs data with missing category info
+        $gigsData = [
+            [
+                'listingAttributes__id'              => 'gig-test',
+                'gigId'                              => 'test-gig-123',
+                'category_id'                        => 5, // Different column names in gigs table
+                'sub_category_id'                    => 121,
+                'nested_sub_category_id'             => 456,
+                'displayData__categoryName'          => null, // Missing
+                'displayData__subCategoryName'       => null, // Missing
+                'displayData__nestedSubCategoryName' => null, // Missing
+                'displayData__cachedSlug'            => null, // Missing
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsGigsTable(), $gigsData);
+
+        // Build category map and test the public method
+        $categoryMap          = $importer->buildCategoryMap();
+        $unmappedCombinations = [];
+
+        $result = $importer->fillMissingCategoryDataForTable(
+            $importer->getFiverrListingsGigsTable(),
+            $categoryMap,
+            ['category_id', 'sub_category_id', 'nested_sub_category_id'], // Different column names
+            $unmappedCombinations
+        );
+
+        $this->assertEquals(1, $result['updated']);
+        $this->assertEquals(0, $result['unmapped']);
+
+        // Verify the gig data was updated
+        $updatedGig = DB::table($importer->getFiverrListingsGigsTable())
+            ->where('gigId', 'test-gig-123')
+            ->first();
+
+        $this->assertEquals('Digital Marketing', $updatedGig->displayData__categoryName);
+        $this->assertEquals('SEO', $updatedGig->displayData__subCategoryName);
+        $this->assertEquals('Local SEO', $updatedGig->displayData__nestedSubCategoryName);
+        $this->assertEquals('local-seo-services', $updatedGig->displayData__cachedSlug);
+    }
+
+    public function test_fillMissingCategoryDataForTable_with_unmapped_combinations(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear table
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        // Insert data with unmappable category combination (no source data)
+        $testData = [
+            [
+                'source_format'                      => 'tag',
+                'listingAttributes__id'              => 'unmapped-test',
+                'categoryIds__categoryId'            => '999', // Non-existent
+                'categoryIds__subCategoryId'         => '888', // Non-existent
+                'categoryIds__nestedSubCategoryId'   => '777', // Non-existent
+                'displayData__categoryName'          => null,
+                'displayData__subCategoryName'       => null,
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null,
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $testData);
+
+        // Build empty category map and test
+        $categoryMap          = $importer->buildCategoryMap(); // Will be empty
+        $unmappedCombinations = [];
+
+        $result = $importer->fillMissingCategoryDataForTable(
+            $importer->getFiverrListingsTable(),
+            $categoryMap,
+            ['categoryIds__categoryId', 'categoryIds__subCategoryId', 'categoryIds__nestedSubCategoryId'],
+            $unmappedCombinations
+        );
+
+        $this->assertEquals(0, $result['updated']);
+        $this->assertEquals(1, $result['unmapped']);
+
+        // Verify unmapped combination was tracked
+        $this->assertCount(1, $unmappedCombinations);
+        $key = '999|888|777';
+        $this->assertArrayHasKey($key, $unmappedCombinations);
+        $this->assertEquals('999', $unmappedCombinations[$key]['categoryId']);
+        $this->assertEquals('888', $unmappedCombinations[$key]['subCategoryId']);
+        $this->assertEquals('777', $unmappedCombinations[$key]['nestedSubCategoryId']);
+    }
+
+    public function test_fillMissingCategoryDataForTable_stats_table(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear tables
+        DB::table($importer->getFiverrListingsTable())->truncate();
+        DB::table($importer->getFiverrListingsStatsTable())->truncate();
+
+        // Insert category source data with NULL nested category (tests 'null' string in keys)
+        $categoryData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'cat-source',
+                'categoryIds__categoryId'            => '7',
+                'categoryIds__subCategoryId'         => '150',
+                'categoryIds__nestedSubCategoryId'   => null, // NULL nested
+                'displayData__categoryName'          => 'Business',
+                'displayData__subCategoryName'       => 'Consulting',
+                'displayData__nestedSubCategoryName' => null, // NULL in source
+                'displayData__cachedSlug'            => 'business-consulting',
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $categoryData);
+
+        // Insert stats data with missing category info
+        $statsData = [
+            [
+                'fiverr_listings_row_id'             => 1, // Hardcoded dummy fiverr_listings row ID (no FK constraint exists)
+                'listingAttributes__id'              => 'stats-test',
+                'categoryIds__categoryId'            => 7, // Integer (tests type coercion)
+                'categoryIds__subCategoryId'         => 150,
+                'categoryIds__nestedSubCategoryId'   => null, // NULL (tests 'null' key)
+                'displayData__categoryName'          => null,
+                'displayData__subCategoryName'       => null,
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null,
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsStatsTable(), $statsData);
+
+        $categoryMap          = $importer->buildCategoryMap();
+        $unmappedCombinations = [];
+
+        // Verify category map has NULL handling ('null' string in key)
+        $expectedKey = '7|150|null';
+        $this->assertArrayHasKey($expectedKey, $categoryMap);
+        $this->assertEquals('Business', $categoryMap[$expectedKey]['categoryName']);
+        $this->assertEquals('Consulting', $categoryMap[$expectedKey]['subCategoryName']);
+        $this->assertNull($categoryMap[$expectedKey]['nestedSubCategoryName']); // NULL from source
+
+        $result = $importer->fillMissingCategoryDataForTable(
+            $importer->getFiverrListingsStatsTable(),
+            $categoryMap,
+            ['categoryIds__categoryId', 'categoryIds__subCategoryId', 'categoryIds__nestedSubCategoryId'],
+            $unmappedCombinations
+        );
+
+        $this->assertEquals(1, $result['updated']);
+        $this->assertEquals(0, $result['unmapped']);
+
+        // Verify the stats data was updated correctly
+        $updatedStats = DB::table($importer->getFiverrListingsStatsTable())
+            ->where('listingAttributes__id', 'stats-test')
+            ->first();
+
+        $this->assertEquals('Business', $updatedStats->displayData__categoryName);
+        $this->assertEquals('Consulting', $updatedStats->displayData__subCategoryName);
+        $this->assertNull($updatedStats->displayData__nestedSubCategoryName); // NULL from source
+        $this->assertEquals('business-consulting', $updatedStats->displayData__cachedSlug);
+    }
+
+    public function test_fillMissingCategoryDataForTable_excludes_category_source_rows(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        DB::table($importer->getFiverrListingsTable())->truncate();
+
+        // Insert category source data
+        $categoryData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'cat-source-map',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Graphics & Design',
+                'displayData__subCategoryName'       => 'Logo Design',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'logo-design',
+            ],
+            [
+                'source_format'                      => 'category', // Should be EXCLUDED from updates
+                'listingAttributes__id'              => 'cat-source-exclude',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => null, // Missing but should NOT be updated
+                'displayData__subCategoryName'       => null,
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null,
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $categoryData);
+
+        $categoryMap          = $importer->buildCategoryMap();
+        $unmappedCombinations = [];
+
+        $result = $importer->fillMissingCategoryDataForTable(
+            $importer->getFiverrListingsTable(), // Test on listings table (where exclusion applies)
+            $categoryMap,
+            ['categoryIds__categoryId', 'categoryIds__subCategoryId', 'categoryIds__nestedSubCategoryId'],
+            $unmappedCombinations
+        );
+
+        // No rows should be updated (source_format='category' rows are excluded)
+        $this->assertEquals(0, $result['updated']);
+        $this->assertEquals(0, $result['unmapped']);
+
+        // Verify the excluded row remains NULL
+        $excludedRow = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', 'cat-source-exclude')
+            ->first();
+
+        $this->assertNull($excludedRow->displayData__categoryName);
+        $this->assertNull($excludedRow->displayData__subCategoryName);
+        $this->assertNull($excludedRow->displayData__cachedSlug);
+    }
+
+    public function test_fillMissingCategoryData_empty_tables(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear all tables
+        DB::table($importer->getFiverrListingsTable())->truncate();
+        DB::table($importer->getFiverrListingsStatsTable())->truncate();
+        DB::table($importer->getFiverrListingsGigsTable())->truncate();
+
+        $stats = $importer->fillMissingCategoryData();
+
+        $this->assertEquals(0, $stats['total_updated']);
+        $this->assertEquals(0, $stats['total_unmapped']);
+        $this->assertEmpty($stats['unmapped_combinations']);
+    }
+
+    public function test_fillMissingCategoryData_with_data(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear all tables
+        DB::table($importer->getFiverrListingsTable())->truncate();
+        DB::table($importer->getFiverrListingsStatsTable())->truncate();
+        DB::table($importer->getFiverrListingsGigsTable())->truncate();
+
+        // Insert category source data
+        $categoryData = [
+            [
+                'source_format'                      => 'category',
+                'listingAttributes__id'              => 'cat-1',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => 'Graphics & Design',
+                'displayData__subCategoryName'       => 'Logo Design',
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => 'creative-logo-design',
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $categoryData);
+
+        // Insert data with missing category info in fiverr_listings
+        $listingsData = [
+            [
+                'source_format'                      => 'tag',
+                'listingAttributes__id'              => 'tag-1',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => null, // Missing
+                'displayData__subCategoryName'       => null, // Missing
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null, // Missing
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $listingsData);
+
+        // Insert data with missing category info in fiverr_listings_gigs
+        $gigsData = [
+            [
+                'listingAttributes__id'              => 'gig-1',
+                'gigId'                              => 'test-gig-1',
+                'category_id'                        => 3,
+                'sub_category_id'                    => 49,
+                'nested_sub_category_id'             => null,
+                'displayData__categoryName'          => null, // Missing
+                'displayData__subCategoryName'       => null, // Missing
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null, // Missing
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsGigsTable(), $gigsData);
+
+        // Insert data with missing category info in fiverr_listings_stats
+        $statsData = [
+            [
+                'fiverr_listings_row_id'             => 1, // Hardcoded (no FK constraint in test)
+                'listingAttributes__id'              => 'stats-1',
+                'categoryIds__categoryId'            => '3',
+                'categoryIds__subCategoryId'         => '49',
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => null, // Missing
+                'displayData__subCategoryName'       => null, // Missing
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null, // Missing
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsStatsTable(), $statsData);
+
+        $stats = $importer->fillMissingCategoryData();
+
+        $this->assertEquals(3, $stats['total_updated']); // 1 from listings + 1 from stats + 1 from gigs
+        $this->assertEquals(0, $stats['total_unmapped']);
+        $this->assertEmpty($stats['unmapped_combinations']);
+
+        // Verify the data was actually updated
+        $updatedListing = DB::table($importer->getFiverrListingsTable())
+            ->where('listingAttributes__id', 'tag-1')
+            ->first();
+        $this->assertEquals('Graphics & Design', $updatedListing->displayData__categoryName);
+        $this->assertEquals('Logo Design', $updatedListing->displayData__subCategoryName);
+        $this->assertEquals('creative-logo-design', $updatedListing->displayData__cachedSlug);
+
+        $updatedGig = DB::table($importer->getFiverrListingsGigsTable())
+            ->where('listingAttributes__id', 'gig-1')
+            ->first();
+        $this->assertEquals('Graphics & Design', $updatedGig->displayData__categoryName);
+        $this->assertEquals('Logo Design', $updatedGig->displayData__subCategoryName);
+        $this->assertEquals('creative-logo-design', $updatedGig->displayData__cachedSlug);
+
+        $updatedStats = DB::table($importer->getFiverrListingsStatsTable())
+            ->where('listingAttributes__id', 'stats-1')
+            ->first();
+        $this->assertEquals('Graphics & Design', $updatedStats->displayData__categoryName);
+        $this->assertEquals('Logo Design', $updatedStats->displayData__subCategoryName);
+        $this->assertEquals('creative-logo-design', $updatedStats->displayData__cachedSlug);
+    }
+
+    public function test_fillMissingCategoryData_with_unmapped_combinations(): void
+    {
+        $importer = new FiverrJsonImporter();
+
+        // Clear all tables
+        DB::table($importer->getFiverrListingsTable())->truncate();
+        DB::table($importer->getFiverrListingsStatsTable())->truncate();
+        DB::table($importer->getFiverrListingsGigsTable())->truncate();
+
+        // Insert data with unmappable category combinations
+        $listingsData = [
+            [
+                'source_format'                      => 'tag',
+                'listingAttributes__id'              => 'unmapped-1',
+                'categoryIds__categoryId'            => '999', // Non-existent
+                'categoryIds__subCategoryId'         => '888', // Non-existent
+                'categoryIds__nestedSubCategoryId'   => null,
+                'displayData__categoryName'          => null,
+                'displayData__subCategoryName'       => null,
+                'displayData__nestedSubCategoryName' => null,
+                'displayData__cachedSlug'            => null,
+            ],
+        ];
+        $importer->insertRows($importer->getFiverrListingsTable(), $listingsData);
+
+        $stats = $importer->fillMissingCategoryData();
+
+        $this->assertEquals(0, $stats['total_updated']);
+        $this->assertEquals(1, $stats['total_unmapped']);
+        $this->assertCount(1, $stats['unmapped_combinations']);
+
+        $unmapped = $stats['unmapped_combinations'][0];
+        $this->assertEquals('999', $unmapped['categoryId']);
+        $this->assertEquals('888', $unmapped['subCategoryId']);
+        $this->assertNull($unmapped['nestedSubCategoryId']);
     }
 }

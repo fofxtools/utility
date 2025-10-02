@@ -3,13 +3,12 @@
 require_once __DIR__ . '/bootstrap.php';
 
 use FOfX\Utility\FiverrJsonImporter;
-use FOfX\Helper;
 use Illuminate\Support\Arr;
 
 use function FOfX\Utility\ensure_table_exists;
 
 // Increase memory for getAllListingsData()
-Helper\minimum_memory_limit('2048M');
+ini_set('memory_limit', -1);
 
 $start = microtime(true);
 
