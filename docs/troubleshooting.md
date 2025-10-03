@@ -93,3 +93,15 @@ This document tracks various issues encountered during development and their sol
   - In `fiverr_listings_gigs`, another listing might already have imported a gig with the same `gigId`, causing it to be skipped during subsequent imports
 - **Impact**: Position sequences like `1, 2, 4, 7, 8` instead of consecutive `1, 2, 3, 4, 5` are normal and expected behavior
 - **Note**: This is intentional behavior to prevent duplication
+
+### October 2025
+
+#### Category ID Normalization: Zero vs NULL (10-02-2025)
+- **Issue**: `fillMissingCategoryData()` failed to match ~16,380 records between tag pages and category pages.
+- **Root Cause**: Fiverr uses different values for missing nested category IDs - category pages use `null`, tag pages use `'0'`.
+- **Solution**: Modified `buildCategoryMap()` and `fillMissingCategoryDataForTable()` to normalize `'0'` and `0` as `null` during key generation:
+  ```php
+  $categoryId = ($categoryId === '0' || $categoryId === 0) ? null : $categoryId;
+  ```
+- **Result**: Unmapped records reduced from 16,380 to 598 (96.3% improvement)
+- **Note**: Source data unchanged; normalization only affects matching logic

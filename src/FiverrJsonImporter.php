@@ -2192,6 +2192,11 @@ class FiverrJsonImporter
             $subCategoryId       = $row->categoryIds__subCategoryId ?? null;
             $nestedSubCategoryId = $row->categoryIds__nestedSubCategoryId ?? null;
 
+            // Normalize: treat '0' as null (tag pages use '0', category pages use null)
+            $categoryId          = ($categoryId === '0' || $categoryId === 0) ? null : $categoryId;
+            $subCategoryId       = ($subCategoryId === '0' || $subCategoryId === 0) ? null : $subCategoryId;
+            $nestedSubCategoryId = ($nestedSubCategoryId === '0' || $nestedSubCategoryId === 0) ? null : $nestedSubCategoryId;
+
             // Create pipe-delimited key (use 'null' string for null values)
             $key = ($categoryId ?? 'null') . '|' . ($subCategoryId ?? 'null') . '|' . ($nestedSubCategoryId ?? 'null');
 
@@ -2257,6 +2262,11 @@ class FiverrJsonImporter
                 $categoryId          = $row->{$categoryIdColumns[0]} ?? null;
                 $subCategoryId       = $row->{$categoryIdColumns[1]} ?? null;
                 $nestedSubCategoryId = $row->{$categoryIdColumns[2]} ?? null;
+
+                // Normalize: treat '0' as null (tag pages use '0', category pages use null)
+                $categoryId          = ($categoryId === '0' || $categoryId === 0) ? null : $categoryId;
+                $subCategoryId       = ($subCategoryId === '0' || $subCategoryId === 0) ? null : $subCategoryId;
+                $nestedSubCategoryId = ($nestedSubCategoryId === '0' || $nestedSubCategoryId === 0) ? null : $nestedSubCategoryId;
 
                 // Create key for lookup (use 'null' string for null values)
                 $key = ($categoryId ?? 'null') . '|' . ($subCategoryId ?? 'null') . '|' . ($nestedSubCategoryId ?? 'null');

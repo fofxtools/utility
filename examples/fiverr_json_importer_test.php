@@ -64,6 +64,12 @@ echo "== (if downloaded and inserted into fiverr_gigs) ==\n";
 $stats = $importer->processGigsStatsAll(forceCacheRebuild: $forceCacheRebuild);
 print_r($stats);
 
+// Fill in missing category data fields
+echo "\n== Fill in missing category names and slugs for rows that have category IDs but missing display data ==\n";
+echo "\n== (in fiverr_listings, fiverr_listings_gigs, and fiverr_listings_stats tables) ==\n";
+$stats = $importer->fillMissingCategoryData();
+print_r($stats);
+
 echo "\n== Test getAllListingsData ==\n";
 $map      = $importer->getAllListingsData(forceCacheRebuild: $forceCacheRebuild);
 $slice    = array_slice($map, 0, 3);
