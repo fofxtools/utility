@@ -1305,6 +1305,7 @@ class FiverrJsonImporterTest extends TestCase
         $row = [
             'id' => 789,
             // Copy-through fields
+            'url'                              => 'https://example.com',
             'listingAttributes__id'            => 'ATTR-123',
             'currency__rate'                   => 1.23,
             'rawListingData__has_more'         => true,
@@ -1334,24 +1335,22 @@ class FiverrJsonImporterTest extends TestCase
 
         $stats = $importer->computeListingsStatsRow($row);
 
-        // Copy-through checks
-        $this->assertSame('GB', $stats['countryCode']);
-        $this->assertTrue($stats['tracking__hasPromotedGigs']);
-
         // Facet counts
         $this->assertSame(11, $stats['facets__is_agency___true___count']);
 
-        // Additional copy-through checks
+        // Copy-through checks
+        $this->assertSame('https://example.com', $stats['url']);
         $this->assertSame('ATTR-123', $stats['listingAttributes__id']);
         $this->assertEqualsWithDelta(1.23, (float)$stats['currency__rate'], 1e-9);
         $this->assertTrue($stats['rawListingData__has_more']);
+        $this->assertSame('GB', $stats['countryCode']);
         $this->assertSame('en', $stats['assumedLanguage']);
         $this->assertSame(321, $stats['v2__report__search_total_results']);
         $this->assertSame(2, $stats['appData__pagination__page']);
         $this->assertSame(50, $stats['appData__pagination__page_size']);
         $this->assertSame(400, $stats['appData__pagination__total']);
 
-        // Additional tracking checks
+        // Tracking checks
         $this->assertFalse($stats['tracking__isNonExperiential']);
         $this->assertSame(7, $stats['tracking__fiverrChoiceGigPosition']);
         $this->assertTrue($stats['tracking__hasFiverrChoiceGigs']);
@@ -1359,7 +1358,7 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertSame(3, $stats['tracking__promotedGigsCount']);
         $this->assertFalse($stats['tracking__searchAutoComplete__is_autocomplete']);
 
-        // Additional facet true counts
+        // Facet true counts
         $fac_has_hourly       = json_encode([['id' => 'true', 'count' => 8]]);
         $fac_is_pa_online     = json_encode([['id' => 'true', 'count' => 6]]);
         $fac_is_seller_online = json_encode([['id' => 'true', 'count' => 4]]);
@@ -1475,6 +1474,7 @@ class FiverrJsonImporterTest extends TestCase
         // Helper to create and import a minimal listings JSON payload
         $makePayload = function (string $id): array {
             return [
+                'url'               => 'https://example.com',
                 'listingAttributes' => ['id' => $id],
                 'currency'          => ['rate' => 1],
                 'rawListingData'    => ['has_more' => true],
@@ -1525,6 +1525,7 @@ class FiverrJsonImporterTest extends TestCase
         $this->assertNotNull($listingS1);
         $statsS1 = DB::table($importer->getFiverrListingsStatsTable())->where('fiverr_listings_row_id', $listingS1->id)->first();
         $this->assertNotNull($statsS1);
+        $this->assertSame('https://example.com', $statsS1->url);
         $this->assertSame('S1', $statsS1->listingAttributes__id);
         $this->assertEqualsWithDelta(1.0, (float) $statsS1->currency__rate, 1e-9);
         $this->assertSame(1, $statsS1->rawListingData__has_more);

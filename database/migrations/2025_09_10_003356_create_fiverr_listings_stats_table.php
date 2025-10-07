@@ -13,6 +13,9 @@ return new class () extends Migration {
             // Link to fiverr_listings row (unique, not nullable)
             $table->unsignedBigInteger('fiverr_listings_row_id');
 
+            // URL
+            $table->string('url')->nullable();
+
             $table->string('listingAttributes__id')->nullable();
 
             // Category information
@@ -185,6 +188,7 @@ return new class () extends Migration {
             $table->unique('fiverr_listings_row_id', 'idx_fls_fiverr_listings_row_id');
 
             // Indexes (named using actual column name prefixed with 'idx_fls_')
+            $table->index('url', 'idx_fls_url');
             $table->index('v2__report__search_total_results', 'idx_fls_v2__report__search_total_results');
             $table->index('appData__pagination__total', 'idx_fls_appData__pagination__total');
 

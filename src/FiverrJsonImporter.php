@@ -1034,6 +1034,7 @@ class FiverrJsonImporter
         // Pre-fill output with all stats keys in migration file column order (null by default)
         $orderedKeys = [
             'fiverr_listings_row_id',
+            'url',
             'listingAttributes__id',
 
             // Category information
@@ -1129,6 +1130,7 @@ class FiverrJsonImporter
 
         // Base copy-through fields from listings row
         $out['fiverr_listings_row_id']                        = (int) ($listingsRow['id'] ?? 0);
+        $out['url']                                           = $listingsRow['url'] ?? null;
         $out['listingAttributes__id']                         = $listingsRow['listingAttributes__id'] ?? null;
         $out['categoryIds__categoryId']                       = $listingsRow['categoryIds__categoryId'] ?? null;
         $out['categoryIds__subCategoryId']                    = $listingsRow['categoryIds__subCategoryId'] ?? null;
