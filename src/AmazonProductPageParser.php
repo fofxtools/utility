@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use FOfX\Helper;
 
 /**
  * Parser for Amazon product pages
@@ -44,9 +45,17 @@ class AmazonProductPageParser
         'date_first_available',
     ];
 
-    // Database table and migration
-    protected string $amazonProductsTable         = 'amazon_products';
-    protected string $amazonProductsMigrationPath = __DIR__ . '/../database/migrations/2025_10_05_194500_create_amazon_products_table.php';
+    // Database tables and migrations
+    protected string $amazonProductsTable                           = 'amazon_products';
+    protected string $amazonProductsMigrationPath                   = __DIR__ . '/../database/migrations/2025_10_05_194500_create_amazon_products_table.php';
+    protected string $amazonKeywordsStatsTable                      = 'amazon_keywords_stats';
+    protected string $amazonKeywordsStatsTableMigrationPath         = __DIR__ . '/../database/migrations/2025_10_06_111107_create_amazon_keywords_stats_table.php';
+    protected string $dataforseoMerchantAmazonProductsListingsTable = 'dataforseo_merchant_amazon_products_listings';
+    protected string $dataforseoMerchantAmazonProductsItemsTable    = 'dataforseo_merchant_amazon_products_items';
+
+    // Stats limits
+    protected int $statsItemsLimit          = 10;
+    protected int $statsAmazonProductsLimit = 3;
 
     // JSON encoding flags
     protected int $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
@@ -93,6 +102,138 @@ class AmazonProductPageParser
     public function setAmazonProductsMigrationPath(string $path): void
     {
         $this->amazonProductsMigrationPath = $path;
+    }
+
+    /**
+     * Get amazon_keywords_stats table name
+     *
+     * @return string
+     */
+    public function getAmazonKeywordsStatsTable(): string
+    {
+        return $this->amazonKeywordsStatsTable;
+    }
+
+    /**
+     * Set amazon_keywords_stats table name
+     *
+     * @param string $name
+     *
+     * @return void
+     */
+    public function setAmazonKeywordsStatsTable(string $name): void
+    {
+        $this->amazonKeywordsStatsTable = $name;
+    }
+
+    /**
+     * Get amazon_keywords_stats migration path
+     *
+     * @return string
+     */
+    public function getAmazonKeywordsStatsTableMigrationPath(): string
+    {
+        return $this->amazonKeywordsStatsTableMigrationPath;
+    }
+
+    /**
+     * Set amazon_keywords_stats migration path
+     *
+     * @param string $path
+     *
+     * @return void
+     */
+    public function setAmazonKeywordsStatsTableMigrationPath(string $path): void
+    {
+        $this->amazonKeywordsStatsTableMigrationPath = $path;
+    }
+
+    /**
+     * Get dataforseo_merchant_amazon_products_listings table name
+     *
+     * @return string
+     */
+    public function getDataforseoMerchantAmazonProductsListingsTable(): string
+    {
+        return $this->dataforseoMerchantAmazonProductsListingsTable;
+    }
+
+    /**
+     * Set dataforseo_merchant_amazon_products_listings table name
+     *
+     * @param string $name
+     *
+     * @return void
+     */
+    public function setDataforseoMerchantAmazonProductsListingsTable(string $name): void
+    {
+        $this->dataforseoMerchantAmazonProductsListingsTable = $name;
+    }
+
+    /**
+     * Get dataforseo_merchant_amazon_products_items table name
+     *
+     * @return string
+     */
+    public function getDataforseoMerchantAmazonProductsItemsTable(): string
+    {
+        return $this->dataforseoMerchantAmazonProductsItemsTable;
+    }
+
+    /**
+     * Set dataforseo_merchant_amazon_products_items table name
+     *
+     * @param string $name
+     *
+     * @return void
+     */
+    public function setDataforseoMerchantAmazonProductsItemsTable(string $name): void
+    {
+        $this->dataforseoMerchantAmazonProductsItemsTable = $name;
+    }
+
+    /**
+     * Get stats items limit
+     *
+     * @return int
+     */
+    public function getStatsItemsLimit(): int
+    {
+        return $this->statsItemsLimit;
+    }
+
+    /**
+     * Set stats items limit
+     *
+     * @param int $limit
+     *
+     * @return void
+     */
+    public function setStatsItemsLimit(int $limit): void
+    {
+        $this->statsItemsLimit = $limit;
+    }
+
+    /**
+     * Get stats amazon products limit
+     *
+     * @return int
+     */
+    public function getStatsAmazonProductsLimit(): int
+    {
+        return $this->statsAmazonProductsLimit;
+    }
+
+    /**
+     * Set stats amazon products limit
+     *
+     * @param int $limit
+     *
+     * @return void
+     */
+    public function setStatsAmazonProductsLimit(int $limit): void
+    {
+        $this->statsAmazonProductsLimit = $limit;
     }
 
     /**
@@ -986,5 +1127,380 @@ class AmazonProductPageParser
                 'reason'   => 'duplicate',
             ];
         }
+    }
+
+    /**
+     * Convert BSR (Best Sellers Rank) to estimated monthly sales for books
+     *
+     * Uses power-law regression formulas based on Amazon book sales data:
+     * - BSR 1-100: High-volume sellers
+     * - BSR 101-100,000: Mid-range sellers
+     * - BSR 100,001+: Long-tail sellers
+     *
+     * @param int|null $bsr Best Sellers Rank (1 = best selling)
+     *
+     * @return float|null Estimated monthly sales, or null if BSR is null
+     */
+    public function bsrToMonthlySalesBooks(?int $bsr): ?float
+    {
+        if ($bsr === null) {
+            return null;
+        }
+
+        if ($bsr <= 100) {
+            return 84175 * pow($bsr, -0.459);
+        } elseif ($bsr <= 100000) {
+            return 385351 * pow($bsr, -0.766);
+        } else {
+            return 3913789 * pow($bsr, -0.982);
+        }
+    }
+
+    /**
+     * Compute statistics from dataforseo_merchant_amazon_products_items
+     *
+     * Filters items by rank_absolute <= $statsItemsLimit and computes:
+     * - JSON arrays of values (from items where rank_absolute <= $statsItemsLimit)
+     * - Averages for numeric fields (excluding nulls)
+     * - Counts for boolean fields (counting true values)
+     *
+     * @param array $items Array of items from dataforseo_merchant_amazon_products_items table
+     *
+     * @return array Statistics array with json___, avg___, and cnt___ keys
+     */
+    public function computeItemsStats(array $items): array
+    {
+        // Filter items by rank_absolute <= statsItemsLimit
+        $filteredItems = array_filter($items, function ($item) {
+            $rankAbsolute = is_object($item) ? $item->rank_absolute : ($item['rank_absolute'] ?? null);
+
+            return $rankAbsolute !== null && $rankAbsolute <= $this->statsItemsLimit;
+        });
+
+        // Initialize result arrays
+        $stats = [
+            // JSON arrays
+            'json___bought_past_month'  => [],
+            'json___price_from'         => [],
+            'json___price_to'           => [],
+            'json___rating_value'       => [],
+            'json___rating_votes_count' => [],
+            'json___rating_rating_max'  => [],
+            'json___is_amazon_choice'   => [],
+            'json___is_best_seller'     => [],
+            // Averages
+            'avg___bought_past_month'  => null,
+            'avg___price_from'         => null,
+            'avg___price_to'           => null,
+            'avg___rating_value'       => null,
+            'avg___rating_votes_count' => null,
+            'avg___rating_rating_max'  => null,
+            // Counts
+            'cnt___is_amazon_choice' => 0,
+            'cnt___is_best_seller'   => 0,
+        ];
+
+        // Collect values for JSON arrays and averages
+        foreach ($filteredItems as $item) {
+            // Helper function to get value from object or array
+            $getValue = function ($key) use ($item) {
+                return is_object($item) ? ($item->$key ?? null) : ($item[$key] ?? null);
+            };
+
+            // Collect numeric values
+            $boughtPastMonth = $getValue('bought_past_month');
+            if ($boughtPastMonth !== null) {
+                $stats['json___bought_past_month'][] = $boughtPastMonth;
+            }
+
+            $priceFrom = $getValue('price_from');
+            if ($priceFrom !== null) {
+                $stats['json___price_from'][] = $priceFrom;
+            }
+
+            $priceTo = $getValue('price_to');
+            if ($priceTo !== null) {
+                $stats['json___price_to'][] = $priceTo;
+            }
+
+            $ratingValue = $getValue('rating_value');
+            if ($ratingValue !== null) {
+                $stats['json___rating_value'][] = $ratingValue;
+            }
+
+            $ratingVotesCount = $getValue('rating_votes_count');
+            if ($ratingVotesCount !== null) {
+                $stats['json___rating_votes_count'][] = $ratingVotesCount;
+            }
+
+            $ratingRatingMax = $getValue('rating_rating_max');
+            if ($ratingRatingMax !== null) {
+                $stats['json___rating_rating_max'][] = $ratingRatingMax;
+            }
+
+            // Collect boolean values
+            $isAmazonChoice = $getValue('is_amazon_choice');
+            if ($isAmazonChoice !== null) {
+                $stats['json___is_amazon_choice'][] = (bool) $isAmazonChoice;
+                if ($isAmazonChoice) {
+                    $stats['cnt___is_amazon_choice']++;
+                }
+            }
+
+            $isBestSeller = $getValue('is_best_seller');
+            if ($isBestSeller !== null) {
+                $stats['json___is_best_seller'][] = (bool) $isBestSeller;
+                if ($isBestSeller) {
+                    $stats['cnt___is_best_seller']++;
+                }
+            }
+        }
+
+        // Compute averages (excluding nulls)
+        $stats['avg___bought_past_month'] = !empty($stats['json___bought_past_month'])
+            ? array_sum($stats['json___bought_past_month']) / count($stats['json___bought_past_month'])
+            : null;
+        $stats['avg___price_from'] = !empty($stats['json___price_from'])
+            ? array_sum($stats['json___price_from']) / count($stats['json___price_from'])
+            : null;
+        $stats['avg___price_to'] = !empty($stats['json___price_to'])
+            ? array_sum($stats['json___price_to']) / count($stats['json___price_to'])
+            : null;
+        $stats['avg___rating_value'] = !empty($stats['json___rating_value'])
+            ? array_sum($stats['json___rating_value']) / count($stats['json___rating_value'])
+            : null;
+        $stats['avg___rating_votes_count'] = !empty($stats['json___rating_votes_count'])
+            ? array_sum($stats['json___rating_votes_count']) / count($stats['json___rating_votes_count'])
+            : null;
+        $stats['avg___rating_rating_max'] = !empty($stats['json___rating_rating_max'])
+            ? array_sum($stats['json___rating_rating_max']) / count($stats['json___rating_rating_max'])
+            : null;
+
+        return $stats;
+    }
+
+    /**
+     * Compute statistics from amazon_products table
+     *
+     * Computes:
+     * - JSON arrays of values (all products provided)
+     * - Averages for numeric fields (excluding nulls)
+     * - Counts for boolean fields (counting true values)
+     * - Average date (computed by converting to timestamps, averaging, and converting back)
+     *
+     * Note: is_independently_published is computed from publisher field
+     * (true if publisher contains "Independently")
+     *
+     * @param array $products Array of products from amazon_products table
+     *
+     * @return array Statistics array with json___products__, avg___products__, and cnt___products__ keys
+     */
+    public function computeProductsStats(array $products): array
+    {
+        // Initialize result arrays
+        $stats = [
+            // JSON arrays
+            'json___products__price'                      => [],
+            'json___products__customer_rating'            => [],
+            'json___products__customer_reviews_count'     => [],
+            'json___products__bsr_rank'                   => [],
+            'json___products__normalized_date'            => [],
+            'json___products__page_count'                 => [],
+            'json___products__is_available'               => [],
+            'json___products__is_amazon_choice'           => [],
+            'json___products__is_independently_published' => [],
+            // Averages
+            'avg___products__price'                  => null,
+            'avg___products__customer_rating'        => null,
+            'avg___products__customer_reviews_count' => null,
+            'avg___products__bsr_rank'               => null,
+            'avg___products__normalized_date'        => null,
+            'avg___products__page_count'             => null,
+            // Counts
+            'cnt___products__is_available'               => 0,
+            'cnt___products__is_amazon_choice'           => 0,
+            'cnt___products__is_independently_published' => 0,
+            // Standard deviation in BSR rank
+            'stdev___products__bsr_rank' => null,
+            // BSR to monthly sales estimate (books only)
+            'json___products__bsr_rank___monthly_sales_books' => [],
+            'avg___products__bsr_rank___monthly_sales_books'  => null,
+        ];
+
+        // Collect values for JSON arrays and averages
+        foreach ($products as $product) {
+            // Helper function to get value from object or array
+            $getValue = function ($key) use ($product) {
+                return is_object($product) ? ($product->$key ?? null) : ($product[$key] ?? null);
+            };
+
+            // Collect numeric values
+            $price = $getValue('price');
+            if ($price !== null) {
+                $stats['json___products__price'][] = (float) $price;
+            }
+
+            $customerRating = $getValue('customer_rating');
+            if ($customerRating !== null) {
+                $stats['json___products__customer_rating'][] = (float) $customerRating;
+            }
+
+            $customerReviewsCount = $getValue('customer_reviews_count');
+            if ($customerReviewsCount !== null) {
+                $stats['json___products__customer_reviews_count'][] = (int) $customerReviewsCount;
+            }
+
+            $bsrRank = $getValue('bsr_rank');
+            if ($bsrRank !== null) {
+                $stats['json___products__bsr_rank'][] = (int) $bsrRank;
+            }
+
+            $normalizedDate = $getValue('normalized_date');
+            if ($normalizedDate !== null) {
+                $stats['json___products__normalized_date'][] = $normalizedDate;
+            }
+
+            $pageCount = $getValue('page_count');
+            if ($pageCount !== null) {
+                $stats['json___products__page_count'][] = (int) $pageCount;
+            }
+
+            // Collect boolean values
+            $isAvailable = $getValue('is_available');
+            if ($isAvailable !== null) {
+                $stats['json___products__is_available'][] = (bool) $isAvailable;
+                if ($isAvailable) {
+                    $stats['cnt___products__is_available']++;
+                }
+            }
+
+            $isAmazonChoice = $getValue('is_amazon_choice');
+            if ($isAmazonChoice !== null) {
+                $stats['json___products__is_amazon_choice'][] = (bool) $isAmazonChoice;
+                if ($isAmazonChoice) {
+                    $stats['cnt___products__is_amazon_choice']++;
+                }
+            }
+
+            // Compute is_independently_published from publisher field
+            $publisher = $getValue('publisher');
+            if ($publisher !== null) {
+                $isIndependentlyPublished                               = Str::contains($publisher, 'Independently published', ignoreCase: true);
+                $stats['json___products__is_independently_published'][] = $isIndependentlyPublished;
+                if ($isIndependentlyPublished) {
+                    $stats['cnt___products__is_independently_published']++;
+                }
+            }
+        }
+
+        // Compute averages (excluding nulls)
+        $stats['avg___products__price'] = !empty($stats['json___products__price'])
+            ? array_sum($stats['json___products__price']) / count($stats['json___products__price'])
+            : null;
+        $stats['avg___products__customer_rating'] = !empty($stats['json___products__customer_rating'])
+            ? array_sum($stats['json___products__customer_rating']) / count($stats['json___products__customer_rating'])
+            : null;
+        $stats['avg___products__customer_reviews_count'] = !empty($stats['json___products__customer_reviews_count'])
+            ? array_sum($stats['json___products__customer_reviews_count']) / count($stats['json___products__customer_reviews_count'])
+            : null;
+        $stats['avg___products__bsr_rank'] = !empty($stats['json___products__bsr_rank'])
+            ? array_sum($stats['json___products__bsr_rank']) / count($stats['json___products__bsr_rank'])
+            : null;
+        $stats['avg___products__page_count'] = !empty($stats['json___products__page_count'])
+            ? array_sum($stats['json___products__page_count']) / count($stats['json___products__page_count'])
+            : null;
+
+        // Compute average date (convert to timestamps, average, convert back)
+        if (!empty($stats['json___products__normalized_date'])) {
+            $dates                                    = $stats['json___products__normalized_date'];
+            $timestamps                               = array_map(fn ($date) => strtotime($date), $dates);
+            $avgTimestamp                             = array_sum($timestamps) / count($timestamps);
+            $stats['avg___products__normalized_date'] = date('Y-m-d', (int) $avgTimestamp);
+        }
+
+        // Compute standard deviation of BSR ranks (null for n<=1)
+        if (count($stats['json___products__bsr_rank']) > 1) {
+            $stats['stdev___products__bsr_rank'] = Helper\array_stdev($stats['json___products__bsr_rank']);
+        } else {
+            $stats['stdev___products__bsr_rank'] = null;
+        }
+
+        // Convert BSR ranks to monthly sales estimates (based on books category)
+        $stats['json___products__bsr_rank___monthly_sales_books'] = [];
+        foreach ($stats['json___products__bsr_rank'] as $bsr) {
+            $monthlySales = $this->bsrToMonthlySalesBooks($bsr);
+            if ($monthlySales !== null) {
+                $stats['json___products__bsr_rank___monthly_sales_books'][] = $monthlySales;
+            }
+        }
+
+        // Compute average monthly sales
+        $stats['avg___products__bsr_rank___monthly_sales_books'] = !empty($stats['json___products__bsr_rank___monthly_sales_books'])
+            ? array_sum($stats['json___products__bsr_rank___monthly_sales_books']) / count($stats['json___products__bsr_rank___monthly_sales_books'])
+            : null;
+
+        return $stats;
+    }
+
+    /**
+     * Compute amazon_keywords_stats row
+     *
+     * Combines data from:
+     * - Listings table row (keyword identifiers, se_results_count, items_count)
+     * - Items table stats (via computeItemsStats)
+     * - Products table stats (via computeProductsStats)
+     *
+     * @param array $listingsRow Listings table row matching (keyword, location_code, language_code, device)
+     * @param array $items       Array of items table rows matching the keyword combination
+     * @param array $products    Array of products table rows where ASIN was in data_asin values
+     *
+     * @return array Row data ready for insertion into amazon_keywords_stats (excluding id, timestamps, processed_at, processed_status)
+     */
+    public function computeAmazonKeywordsStatsRow(
+        array $listingsRow,
+        array $items,
+        array $products
+    ): array {
+        // Helper function to get value from object or array
+        $getValue = function ($key, $data) {
+            return is_object($data) ? ($data->$key ?? null) : ($data[$key] ?? null);
+        };
+
+        // Extract primary identifiers from listings row
+        $row = [
+            'keyword'                                         => $getValue('keyword', $listingsRow),
+            'location_code'                                   => $getValue('location_code', $listingsRow),
+            'language_code'                                   => $getValue('language_code', $listingsRow),
+            'device'                                          => $getValue('device', $listingsRow),
+            'dataforseo_merchant_amazon_products_listings_id' => $getValue('id', $listingsRow),
+            'se_results_count'                                => $getValue('se_results_count', $listingsRow),
+            'items_count'                                     => $getValue('items_count', $listingsRow),
+        ];
+
+        // Compute items stats
+        $itemsStats = $this->computeItemsStats($items);
+
+        // Compute products stats
+        $productsStats = $this->computeProductsStats($products);
+
+        // Merge items stats into row
+        $row = array_merge($row, $itemsStats);
+
+        // Merge products stats into row
+        $row = array_merge($row, $productsStats);
+
+        // Initialize score fields (to be computed later)
+        $row['score_1']  = null;
+        $row['score_2']  = null;
+        $row['score_3']  = null;
+        $row['score_4']  = null;
+        $row['score_5']  = null;
+        $row['score_6']  = null;
+        $row['score_7']  = null;
+        $row['score_8']  = null;
+        $row['score_9']  = null;
+        $row['score_10'] = null;
+
+        return $row;
     }
 }

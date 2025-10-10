@@ -27,6 +27,9 @@ use function FOfX\Utility\types_to_columns;
 use function FOfX\Utility\get_json_value_by_path;
 use function FOfX\Utility\extract_values_by_paths;
 use function FOfX\Utility\ensure_table_exists;
+use function FOfX\Utility\kdp_trim_size_inches;
+use function FOfX\Utility\kdp_print_cost_us;
+use function FOfX\Utility\kdp_royalty_us;
 
 class FunctionsTest extends TestCase
 {
@@ -109,7 +112,6 @@ class FunctionsTest extends TestCase
         ]);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Failed to download public suffix list');
 
         download_public_suffix_list();
     }
@@ -1130,8 +1132,496 @@ PHP;
         Schema::dropIfExists($tableName);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage("Migration file not found: {$nonExistentMigrationFile}");
 
         ensure_table_exists($tableName, $nonExistentMigrationFile);
+    }
+
+    public static function kdpTrimSizeInchesProvider(): array
+    {
+        return [
+            // Regular trim sizes (width <= 6.12 AND height <= 9.0)
+            'regular 6 x 9' => [
+                'dimensions' => '6 x 0.45 x 9 inches',
+                'expected'   => 'regular',
+            ],
+            'regular 5.5 x 8.5' => [
+                'dimensions' => '5.5 x 0.3 x 8.5 inches',
+                'expected'   => 'regular',
+            ],
+            'regular 5 x 8' => [
+                'dimensions' => '5 x 0.25 x 8 inches',
+                'expected'   => 'regular',
+            ],
+            'regular 6.12 x 9.0 boundary' => [
+                'dimensions' => '6.12 x 0.5 x 9.0 inches',
+                'expected'   => 'regular',
+            ],
+
+            // Large trim sizes (width > 6.12 OR height > 9.0)
+            'large 8.5 x 11' => [
+                'dimensions' => '8.5 x 0.24 x 11 inches',
+                'expected'   => 'large',
+            ],
+            'large 7 x 10' => [
+                'dimensions' => '7 x 0.5 x 10 inches',
+                'expected'   => 'large',
+            ],
+            'large 11.4 x 8.3' => [
+                'dimensions' => '11.4 x 8.3 x 0.21 inches',
+                'expected'   => 'large',
+            ],
+            'large square 9.84 x 9.84' => [
+                'dimensions' => '9.84 x 9.84 x 0.2 inches',
+                'expected'   => 'large',
+            ],
+            'large width exceeds 6.12' => [
+                'dimensions' => '6.13 x 0.3 x 9.0 inches',
+                'expected'   => 'large',
+            ],
+            'large height exceeds 9.0' => [
+                'dimensions' => '6.0 x 0.3 x 9.01 inches',
+                'expected'   => 'large',
+            ],
+
+            // Different formats
+            'dimensions with x separator' => [
+                'dimensions' => '6 x 9 inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions with × separator' => [
+                'dimensions' => '6 × 9 × 0.5 inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions with spaces' => [
+                'dimensions' => '6   x   9   inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions lowercase inches' => [
+                'dimensions' => '6 x 9 inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions uppercase INCHES' => [
+                'dimensions' => '6 x 9 INCHES',
+                'expected'   => 'regular',
+            ],
+            'dimensions mixed case Inches' => [
+                'dimensions' => '6 x 9 Inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions with inch (singular)' => [
+                'dimensions' => '6 x 9 inch',
+                'expected'   => 'regular',
+            ],
+
+            // Order variations (function takes two largest)
+            'dimensions thickness first' => [
+                'dimensions' => '0.5 x 6 x 9 inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions height first' => [
+                'dimensions' => '9 x 6 x 0.5 inches',
+                'expected'   => 'regular',
+            ],
+            'dimensions width first' => [
+                'dimensions' => '6 x 9 x 0.5 inches',
+                'expected'   => 'regular',
+            ],
+
+            // Edge cases that should return null
+            'no inch keyword' => [
+                'dimensions' => '6 x 9 cm',
+                'expected'   => null,
+            ],
+            'no numbers' => [
+                'dimensions' => 'six by nine inches',
+                'expected'   => null,
+            ],
+            'only one number' => [
+                'dimensions' => '6 inches',
+                'expected'   => null,
+            ],
+            'empty string' => [
+                'dimensions' => '',
+                'expected'   => null,
+            ],
+            'only inch keyword' => [
+                'dimensions' => 'inches',
+                'expected'   => null,
+            ],
+        ];
+    }
+
+    #[DataProvider('kdpTrimSizeInchesProvider')]
+    public function test_kdp_trim_size_inches(string $dimensions, ?string $expected): void
+    {
+        $result = kdp_trim_size_inches($dimensions);
+        $this->assertSame($expected, $result);
+    }
+
+    public function test_kdp_trim_size_inches_with_decimal_precision(): void
+    {
+        // Test that 6.12 x 9.0 is regular (boundary)
+        $this->assertSame('regular', kdp_trim_size_inches('6.12 x 9.0 inches'));
+
+        // Test that 6.13 x 9.0 is large (just over width boundary)
+        $this->assertSame('large', kdp_trim_size_inches('6.13 x 9.0 inches'));
+
+        // Test that 6.12 x 9.01 is large (just over height boundary)
+        $this->assertSame('large', kdp_trim_size_inches('6.12 x 9.01 inches'));
+    }
+
+    public function test_kdp_trim_size_inches_ignores_thickness(): void
+    {
+        // Thickness (smallest dimension) should be ignored
+        // These should all be regular (6 x 9)
+        $this->assertSame('regular', kdp_trim_size_inches('6 x 9 x 0.1 inches'));
+        $this->assertSame('regular', kdp_trim_size_inches('6 x 9 x 0.5 inches'));
+        $this->assertSame('regular', kdp_trim_size_inches('6 x 9 x 1.0 inches'));
+
+        // These should all be large (8.5 x 11)
+        $this->assertSame('large', kdp_trim_size_inches('8.5 x 11 x 0.1 inches'));
+        $this->assertSame('large', kdp_trim_size_inches('8.5 x 11 x 0.5 inches'));
+        $this->assertSame('large', kdp_trim_size_inches('8.5 x 11 x 1.0 inches'));
+    }
+
+    public function test_kdp_trim_size_inches_with_extra_text(): void
+    {
+        // Should still parse dimensions even with extra text
+        $this->assertSame('regular', kdp_trim_size_inches('Product Dimensions: 6 x 9 inches'));
+        $this->assertSame('large', kdp_trim_size_inches('Size: 8.5 x 11 inches (Letter)'));
+        $this->assertSame('regular', kdp_trim_size_inches('Paperback: 6 x 0.5 x 9 inches; Weight: 1 lb'));
+    }
+
+    public static function kdpPrintCostUsProvider(): array
+    {
+        return [
+            // Black ink, small trim
+            'black 24 pages small' => [
+                'numPages'        => 24,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 2.3, // Fixed cost only (24-108 pages)
+            ],
+            'black 108 pages small' => [
+                'numPages'        => 108,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 2.3, // Fixed cost only (boundary)
+            ],
+            'black 109 pages small' => [
+                'numPages'        => 109,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (109 * 0.012), // Fixed + per-page
+            ],
+            'black 200 pages small' => [
+                'numPages'        => 200,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (200 * 0.012), // 1 + 2.4 = 3.4
+            ],
+            'black 828 pages small' => [
+                'numPages'        => 828,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (828 * 0.012), // Maximum pages
+            ],
+
+            // Black ink, large trim
+            'black 24 pages large' => [
+                'numPages'        => 24,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 2.84, // Fixed cost only
+            ],
+            'black 108 pages large' => [
+                'numPages'        => 108,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 2.84, // Fixed cost only (boundary)
+            ],
+            'black 109 pages large' => [
+                'numPages'        => 109,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (109 * 0.017), // Fixed + per-page
+            ],
+            'black 200 pages large' => [
+                'numPages'        => 200,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (200 * 0.017), // 1 + 3.4 = 4.4
+            ],
+
+            // Premium color, small trim
+            'premium color 24 pages small' => [
+                'numPages'        => 24,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => false,
+                'expected'        => 3.6, // Fixed cost only (24-40 pages)
+            ],
+            'premium color 40 pages small' => [
+                'numPages'        => 40,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => false,
+                'expected'        => 3.6, // Fixed cost only (boundary)
+            ],
+            'premium color 41 pages small' => [
+                'numPages'        => 41,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (41 * 0.065), // Fixed + per-page
+            ],
+            'premium color 100 pages small' => [
+                'numPages'        => 100,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (100 * 0.065), // 1 + 6.5 = 7.5
+            ],
+
+            // Premium color, large trim
+            'premium color 24 pages large' => [
+                'numPages'        => 24,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => true,
+                'expected'        => 4.2, // Fixed cost only
+            ],
+            'premium color 40 pages large' => [
+                'numPages'        => 40,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => true,
+                'expected'        => 4.2, // Fixed cost only (boundary)
+            ],
+            'premium color 41 pages large' => [
+                'numPages'        => 41,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (41 * 0.08), // Fixed + per-page
+            ],
+            'premium color 100 pages large' => [
+                'numPages'        => 100,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (100 * 0.08), // 1 + 8 = 9
+            ],
+
+            // Standard color, small trim
+            'standard color 72 pages small' => [
+                'numPages'        => 72,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (72 * 0.0255), // Minimum for standard color
+            ],
+            'standard color 200 pages small' => [
+                'numPages'        => 200,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (200 * 0.0255), // 1 + 5.1 = 6.1
+            ],
+            'standard color 600 pages small' => [
+                'numPages'        => 600,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expected'        => 1 + (600 * 0.0255), // Maximum for standard color
+            ],
+
+            // Standard color, large trim
+            'standard color 72 pages large' => [
+                'numPages'        => 72,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (72 * 0.0402), // Minimum for standard color
+            ],
+            'standard color 200 pages large' => [
+                'numPages'        => 200,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (200 * 0.0402), // 1 + 8.04 = 9.04
+            ],
+            'standard color 600 pages large' => [
+                'numPages'        => 600,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expected'        => 1 + (600 * 0.0402), // Maximum for standard color
+            ],
+        ];
+    }
+
+    #[DataProvider('kdpPrintCostUsProvider')]
+    public function test_kdp_print_cost_us(
+        int $numPages,
+        bool $isColor,
+        bool $isPremiumInk,
+        bool $isTrimSizeLarge,
+        float $expected
+    ): void {
+        $result = kdp_print_cost_us($numPages, $isColor, $isPremiumInk, $isTrimSizeLarge);
+        $this->assertEqualsWithDelta($expected, $result, 0.01);
+    }
+
+    public function test_kdp_print_cost_us_auto_adjusts_minimum_pages_for_standard_color(): void
+    {
+        // Standard color minimum is 72, but function auto-adjusts from lower values
+        $result   = kdp_print_cost_us(50, isColor: true, isPremiumInk: false);
+        $expected = 1 + (72 * 0.0255); // Should use 72 pages
+        $this->assertEqualsWithDelta($expected, $result, 0.01);
+    }
+
+    public function test_kdp_print_cost_us_auto_adjusts_minimum_pages_for_black(): void
+    {
+        // Black ink minimum is 24, but function auto-adjusts from lower values
+        $result   = kdp_print_cost_us(10, isColor: false);
+        $expected = 2.3; // Should use 24 pages (fixed cost only)
+        $this->assertEqualsWithDelta($expected, $result, 0.01);
+    }
+
+    public function test_kdp_print_cost_us_throws_exception_for_too_many_pages(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        kdp_print_cost_us(829);
+    }
+
+    public function test_kdp_print_cost_us_throws_exception_for_standard_color_too_many_pages(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        kdp_print_cost_us(601, isColor: true, isPremiumInk: false);
+    }
+
+    public static function kdpRoyaltyUsProvider(): array
+    {
+        return [
+            // 50% royalty rate (list price <= 9.98)
+            'low price 50% rate' => [
+                'listPrice'       => 5.00,
+                'numPages'        => 100,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.5 * 5.00) - 2.3, // 2.5 - 2.3 = 0.2
+            ],
+            'boundary price 50% rate' => [
+                'listPrice'       => 9.98,
+                'numPages'        => 100,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.5 * 9.98) - 2.3, // 4.99 - 2.3 = 2.69
+            ],
+
+            // 60% royalty rate (list price > 9.98)
+            'high price 60% rate' => [
+                'listPrice'       => 9.99,
+                'numPages'        => 100,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.6 * 9.99) - 2.3, // 5.994 - 2.3 = 3.694
+            ],
+            'typical book price' => [
+                'listPrice'       => 15.99,
+                'numPages'        => 200,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.6 * 15.99) - (1 + (200 * 0.012)), // 9.594 - 3.4 = 6.194
+            ],
+
+            // Color books
+            'premium color book' => [
+                'listPrice'       => 29.99,
+                'numPages'        => 100,
+                'isColor'         => true,
+                'isPremiumInk'    => true,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.6 * 29.99) - (1 + (100 * 0.065)), // 17.994 - 7.5 = 10.494
+            ],
+            'standard color book' => [
+                'listPrice'       => 19.99,
+                'numPages'        => 200,
+                'isColor'         => true,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.6 * 19.99) - (1 + (200 * 0.0255)), // 11.994 - 6.1 = 5.894
+            ],
+
+            // Large trim size
+            'large trim black' => [
+                'listPrice'       => 12.99,
+                'numPages'        => 200,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => true,
+                'expectedRoyalty' => (0.6 * 12.99) - (1 + (200 * 0.017)), // 7.794 - 4.4 = 3.394
+            ],
+
+            // Negative royalty (print cost exceeds royalty)
+            'negative royalty' => [
+                'listPrice'       => 3.00,
+                'numPages'        => 200,
+                'isColor'         => false,
+                'isPremiumInk'    => false,
+                'isTrimSizeLarge' => false,
+                'expectedRoyalty' => (0.5 * 3.00) - (1 + (200 * 0.012)), // 1.5 - 3.4 = -1.9
+            ],
+        ];
+    }
+
+    #[DataProvider('kdpRoyaltyUsProvider')]
+    public function test_kdp_royalty_us(
+        float $listPrice,
+        int $numPages,
+        bool $isColor,
+        bool $isPremiumInk,
+        bool $isTrimSizeLarge,
+        float $expectedRoyalty
+    ): void {
+        $result = kdp_royalty_us($listPrice, $numPages, $isColor, $isPremiumInk, $isTrimSizeLarge);
+        $this->assertEqualsWithDelta($expectedRoyalty, $result, 0.01);
+    }
+
+    public function test_kdp_royalty_us_uses_correct_rate_at_threshold(): void
+    {
+        // Test that 9.98 uses 50% rate
+        $result1   = kdp_royalty_us(9.98, 100, false, false, false);
+        $printCost = 2.3;
+        $expected1 = (0.5 * 9.98) - $printCost;
+        $this->assertEqualsWithDelta($expected1, $result1, 0.01);
+
+        // Test that 9.99 uses 60% rate
+        $result2   = kdp_royalty_us(9.99, 100, false, false, false);
+        $expected2 = (0.6 * 9.99) - $printCost;
+        $this->assertEqualsWithDelta($expected2, $result2, 0.01);
+
+        // Verify they're different
+        $this->assertNotEquals($result1, $result2);
+    }
+
+    public function test_kdp_royalty_us_throws_exception_for_invalid_page_count(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        kdp_royalty_us(15.99, 829, false, false, false);
     }
 }

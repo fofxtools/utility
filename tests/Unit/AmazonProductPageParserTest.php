@@ -39,6 +39,58 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEquals($customPath, $this->parser->getAmazonProductsMigrationPath());
     }
 
+    public function test_get_and_set_amazon_keywords_stats_table(): void
+    {
+        $this->assertEquals('amazon_keywords_stats', $this->parser->getAmazonKeywordsStatsTable());
+
+        $this->parser->setAmazonKeywordsStatsTable('custom_amazon_keywords_stats');
+        $this->assertEquals('custom_amazon_keywords_stats', $this->parser->getAmazonKeywordsStatsTable());
+    }
+
+    public function test_get_and_set_amazon_keywords_stats_table_migration_path(): void
+    {
+        // The default path is relative to src/ directory
+        $actualPath = $this->parser->getAmazonKeywordsStatsTableMigrationPath();
+        $this->assertStringEndsWith('database/migrations/2025_10_06_111107_create_amazon_keywords_stats_table.php', $actualPath);
+        $this->assertStringContainsString('database', $actualPath);
+
+        $customPath = '/custom/path/to/migration.php';
+        $this->parser->setAmazonKeywordsStatsTableMigrationPath($customPath);
+        $this->assertEquals($customPath, $this->parser->getAmazonKeywordsStatsTableMigrationPath());
+    }
+
+    public function test_get_and_set_dataforseo_merchant_amazon_products_listings_table(): void
+    {
+        $this->assertEquals('dataforseo_merchant_amazon_products_listings', $this->parser->getDataforseoMerchantAmazonProductsListingsTable());
+
+        $this->parser->setDataforseoMerchantAmazonProductsListingsTable('custom_listings_table');
+        $this->assertEquals('custom_listings_table', $this->parser->getDataforseoMerchantAmazonProductsListingsTable());
+    }
+
+    public function test_get_and_set_dataforseo_merchant_amazon_products_items_table(): void
+    {
+        $this->assertEquals('dataforseo_merchant_amazon_products_items', $this->parser->getDataforseoMerchantAmazonProductsItemsTable());
+
+        $this->parser->setDataforseoMerchantAmazonProductsItemsTable('custom_items_table');
+        $this->assertEquals('custom_items_table', $this->parser->getDataforseoMerchantAmazonProductsItemsTable());
+    }
+
+    public function test_get_and_set_stats_items_limit(): void
+    {
+        $this->assertEquals(10, $this->parser->getStatsItemsLimit());
+
+        $this->parser->setStatsItemsLimit(20);
+        $this->assertEquals(20, $this->parser->getStatsItemsLimit());
+    }
+
+    public function test_get_and_set_stats_amazon_products_limit(): void
+    {
+        $this->assertEquals(3, $this->parser->getStatsAmazonProductsLimit());
+
+        $this->parser->setStatsAmazonProductsLimit(5);
+        $this->assertEquals(5, $this->parser->getStatsAmazonProductsLimit());
+    }
+
     public function test_get_and_set_json_flags(): void
     {
         $expectedFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
@@ -1232,5 +1284,1057 @@ class AmazonProductPageParserTest extends TestCase
             'processed_at'     => null,
             'processed_status' => null,
         ]);
+    }
+
+    public function test_bsr_to_monthly_sales_books_with_null(): void
+    {
+        $result = $this->parser->bsrToMonthlySalesBooks(null);
+        $this->assertNull($result);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_1_high_volume(): void
+    {
+        // BSR 1-100: High-volume sellers
+        $result = $this->parser->bsrToMonthlySalesBooks(1);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // BSR 1 should give highest sales
+        $bsr1   = $this->parser->bsrToMonthlySalesBooks(1);
+        $bsr100 = $this->parser->bsrToMonthlySalesBooks(100);
+        $this->assertGreaterThan($bsr100, $bsr1);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_2_mid_range(): void
+    {
+        // BSR 101-100,000: Mid-range sellers
+        $result = $this->parser->bsrToMonthlySalesBooks(1000);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // Lower BSR should give higher sales
+        $bsr101    = $this->parser->bsrToMonthlySalesBooks(101);
+        $bsr100000 = $this->parser->bsrToMonthlySalesBooks(100000);
+        $this->assertGreaterThan($bsr100000, $bsr101);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_3_long_tail(): void
+    {
+        // BSR 100,001+: Long-tail sellers
+        $result = $this->parser->bsrToMonthlySalesBooks(500000);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // Lower BSR should give higher sales
+        $bsr100001  = $this->parser->bsrToMonthlySalesBooks(100001);
+        $bsr1000000 = $this->parser->bsrToMonthlySalesBooks(1000000);
+        $this->assertGreaterThan($bsr1000000, $bsr100001);
+    }
+
+    public function test_bsr_to_monthly_sales_books_boundary_values(): void
+    {
+        // Test boundary between tier 1 and tier 2
+        // Note: There may be a discontinuity at boundaries due to different formulas
+        $bsr100 = $this->parser->bsrToMonthlySalesBooks(100);
+        $bsr101 = $this->parser->bsrToMonthlySalesBooks(101);
+        // Both should be positive
+        $this->assertGreaterThan(0, $bsr100);
+        $this->assertGreaterThan(0, $bsr101);
+
+        // Test boundary between tier 2 and tier 3
+        $bsr100000 = $this->parser->bsrToMonthlySalesBooks(100000);
+        $bsr100001 = $this->parser->bsrToMonthlySalesBooks(100001);
+        // Both should be positive
+        $this->assertGreaterThan(0, $bsr100000);
+        $this->assertGreaterThan(0, $bsr100001);
+    }
+
+    public static function bsrToMonthlySalesBooksProvider(): array
+    {
+        return [
+            'BSR 1 (best seller)' => [
+                'bsr'      => 1,
+                'expected' => 84175.0,
+            ],
+            'BSR 10 (top 10)' => [
+                'bsr'      => 10,
+                'expected' => 29253.86,
+            ],
+            'BSR 100 (tier 1 boundary)' => [
+                'bsr'      => 100,
+                'expected' => 10166.77,
+            ],
+            'BSR 101 (tier 2 start)' => [
+                'bsr'      => 101,
+                'expected' => 11234.31,
+            ],
+            'BSR 1,000 (mid-range)' => [
+                'bsr'      => 1000,
+                'expected' => 1940.24,
+            ],
+            'BSR 10,000 (mid-range)' => [
+                'bsr'      => 10000,
+                'expected' => 332.55,
+            ],
+            'BSR 100,000 (tier 2 boundary)' => [
+                'bsr'      => 100000,
+                'expected' => 57.00,
+            ],
+            'BSR 100,001 (tier 3 start)' => [
+                'bsr'      => 100001,
+                'expected' => 48.15,
+            ],
+            'BSR 500,000 (long tail)' => [
+                'bsr'      => 500000,
+                'expected' => 9.91,
+            ],
+            'BSR 1,000,000 (deep long tail)' => [
+                'bsr'      => 1000000,
+                'expected' => 5.02,
+            ],
+            'BSR 5,000,000 (very deep long tail)' => [
+                'bsr'      => 5000000,
+                'expected' => 1.03,
+            ],
+            'BSR 10,000,000 (extremely deep long tail)' => [
+                'bsr'      => 10000000,
+                'expected' => 0.52,
+            ],
+        ];
+    }
+
+    #[DataProvider('bsrToMonthlySalesBooksProvider')]
+    public function test_bsr_to_monthly_sales_books_with_data_provider(
+        int $bsr,
+        float $expected
+    ): void {
+        $result = $this->parser->bsrToMonthlySalesBooks($bsr);
+
+        $this->assertIsFloat($result);
+        // Use delta of 0.01 for floating-point comparison
+        $this->assertEqualsWithDelta($expected, $result, 0.01, "BSR {$bsr} should produce approximately {$expected} monthly sales");
+    }
+
+    public function test_compute_items_stats_with_empty_array(): void
+    {
+        $result = $this->parser->computeItemsStats([]);
+
+        // Should return structure with empty arrays and null averages
+        $this->assertEmpty($result['json___bought_past_month']);
+        $this->assertEmpty($result['json___price_from']);
+        $this->assertEmpty($result['json___price_to']);
+        $this->assertEmpty($result['json___rating_value']);
+        $this->assertEmpty($result['json___rating_votes_count']);
+        $this->assertEmpty($result['json___rating_rating_max']);
+        $this->assertEmpty($result['json___is_amazon_choice']);
+        $this->assertEmpty($result['json___is_best_seller']);
+        $this->assertNull($result['avg___bought_past_month']);
+        $this->assertNull($result['avg___price_from']);
+        $this->assertNull($result['avg___price_to']);
+        $this->assertNull($result['avg___rating_value']);
+        $this->assertNull($result['avg___rating_votes_count']);
+        $this->assertNull($result['avg___rating_rating_max']);
+        $this->assertEquals(0, $result['cnt___is_amazon_choice']);
+        $this->assertEquals(0, $result['cnt___is_best_seller']);
+    }
+
+    public function test_compute_items_stats_filters_by_rank_absolute(): void
+    {
+        $this->parser->setStatsItemsLimit(3);
+
+        $items = [
+            ['rank_absolute' => 1, 'price_from' => 10.0],
+            ['rank_absolute' => 2, 'price_from' => 20.0],
+            ['rank_absolute' => 3, 'price_from' => 30.0], // Should be included (rank <= 3)
+            ['rank_absolute' => 4, 'price_from' => 40.0], // Should be excluded (rank > 3)
+        ];
+
+        $result = $this->parser->computeItemsStats($items);
+
+        // Only items with rank_absolute <= 3 should be included (top 3 items)
+        $this->assertCount(3, $result['json___price_from']);
+        $this->assertEquals([10.0, 20.0, 30.0], $result['json___price_from']);
+        $this->assertEquals(20.0, $result['avg___price_from']);
+    }
+
+    public function test_compute_items_stats_handles_objects_and_arrays(): void
+    {
+        $this->parser->setStatsItemsLimit(10);
+
+        // Mix of objects and arrays
+        $items = [
+            (object)['rank_absolute' => 1, 'price_from' => 10.0],
+            ['rank_absolute' => 2, 'price_from' => 20.0],
+            (object)['rank_absolute' => 3, 'price_from' => 30.0],
+        ];
+
+        $result = $this->parser->computeItemsStats($items);
+
+        $this->assertCount(3, $result['json___price_from']);
+        $this->assertEquals([10.0, 20.0, 30.0], $result['json___price_from']);
+        $this->assertEquals(20.0, $result['avg___price_from']);
+    }
+
+    public function test_compute_items_stats_excludes_null_values_from_numeric_fields(): void
+    {
+        $this->parser->setStatsItemsLimit(10);
+
+        $items = [
+            ['rank_absolute' => 1, 'price_from' => 10.0, 'price_to' => null],
+            ['rank_absolute' => 2, 'price_from' => 20.0, 'price_to' => 50.0],
+            ['rank_absolute' => 3, 'price_from' => null, 'price_to' => 60.0],
+        ];
+
+        $result = $this->parser->computeItemsStats($items);
+
+        // price_from should only have non-null values
+        $this->assertCount(2, $result['json___price_from']);
+        $this->assertEquals([10.0, 20.0], $result['json___price_from']);
+        $this->assertEquals(15.0, $result['avg___price_from']);
+
+        // price_to should only have non-null values
+        $this->assertCount(2, $result['json___price_to']);
+        $this->assertEquals([50.0, 60.0], $result['json___price_to']);
+        $this->assertEquals(55.0, $result['avg___price_to']);
+    }
+
+    public function test_compute_items_stats_counts_boolean_true_values(): void
+    {
+        $this->parser->setStatsItemsLimit(10);
+
+        $items = [
+            ['rank_absolute' => 1, 'is_amazon_choice' => 1, 'is_best_seller' => 0],
+            ['rank_absolute' => 2, 'is_amazon_choice' => 0, 'is_best_seller' => 1],
+            ['rank_absolute' => 3, 'is_amazon_choice' => 1, 'is_best_seller' => 1],
+            ['rank_absolute' => 4, 'is_amazon_choice' => 0, 'is_best_seller' => 0],
+        ];
+
+        $result = $this->parser->computeItemsStats($items);
+
+        $this->assertEquals(2, $result['cnt___is_amazon_choice']);
+        $this->assertEquals(2, $result['cnt___is_best_seller']);
+    }
+
+    public static function computeItemsStatsProvider(): array
+    {
+        return [
+            'single item with all fields' => [
+                'items' => [
+                    [
+                        'rank_absolute'      => 1,
+                        'bought_past_month'  => 1000,
+                        'price_from'         => 29.99,
+                        'price_to'           => 39.99,
+                        'rating_value'       => 4.5,
+                        'rating_votes_count' => 500,
+                        'rating_rating_max'  => 5,
+                        'is_amazon_choice'   => 1,
+                        'is_best_seller'     => 0,
+                    ],
+                ],
+                'expected' => [
+                    'json___bought_past_month'  => [1000],
+                    'json___price_from'         => [29.99],
+                    'json___price_to'           => [39.99],
+                    'json___rating_value'       => [4.5],
+                    'json___rating_votes_count' => [500],
+                    'json___rating_rating_max'  => [5],
+                    'avg___bought_past_month'   => 1000.0,
+                    'avg___price_from'          => 29.99,
+                    'avg___price_to'            => 39.99,
+                    'avg___rating_value'        => 4.5,
+                    'avg___rating_votes_count'  => 500.0,
+                    'avg___rating_rating_max'   => 5.0,
+                    'cnt___is_amazon_choice'    => 1,
+                    'cnt___is_best_seller'      => 0,
+                ],
+            ],
+            'multiple items with averages' => [
+                'items' => [
+                    [
+                        'rank_absolute'      => 1,
+                        'bought_past_month'  => 1000,
+                        'price_from'         => 10.0,
+                        'rating_value'       => 4.0,
+                        'rating_votes_count' => 100,
+                        'rating_rating_max'  => 5,
+                        'is_amazon_choice'   => 1,
+                        'is_best_seller'     => 1,
+                    ],
+                    [
+                        'rank_absolute'      => 2,
+                        'bought_past_month'  => 2000,
+                        'price_from'         => 20.0,
+                        'rating_value'       => 5.0,
+                        'rating_votes_count' => 200,
+                        'rating_rating_max'  => 5,
+                        'is_amazon_choice'   => 0,
+                        'is_best_seller'     => 1,
+                    ],
+                    [
+                        'rank_absolute'      => 3,
+                        'bought_past_month'  => 3000,
+                        'price_from'         => 30.0,
+                        'rating_value'       => 3.0,
+                        'rating_votes_count' => 300,
+                        'rating_rating_max'  => 5,
+                        'is_amazon_choice'   => 1,
+                        'is_best_seller'     => 0,
+                    ],
+                ],
+                'expected' => [
+                    'json___bought_past_month'  => [1000, 2000, 3000],
+                    'json___price_from'         => [10.0, 20.0, 30.0],
+                    'json___rating_value'       => [4.0, 5.0, 3.0],
+                    'json___rating_votes_count' => [100, 200, 300],
+                    'json___rating_rating_max'  => [5, 5, 5],
+                    'avg___bought_past_month'   => 2000.0,
+                    'avg___price_from'          => 20.0,
+                    'avg___rating_value'        => 4.0,
+                    'avg___rating_votes_count'  => 200.0,
+                    'avg___rating_rating_max'   => 5.0,
+                    'cnt___is_amazon_choice'    => 2,
+                    'cnt___is_best_seller'      => 2,
+                ],
+            ],
+            'items with missing fields' => [
+                'items' => [
+                    [
+                        'rank_absolute'    => 1,
+                        'price_from'       => 10.0,
+                        'is_amazon_choice' => 1,
+                    ],
+                    [
+                        'rank_absolute'  => 2,
+                        'price_from'     => 20.0,
+                        'is_best_seller' => 1,
+                    ],
+                ],
+                'expected' => [
+                    'json___bought_past_month'  => [],
+                    'json___price_from'         => [10.0, 20.0],
+                    'json___price_to'           => [],
+                    'json___rating_value'       => [],
+                    'json___rating_votes_count' => [],
+                    'json___rating_rating_max'  => [],
+                    'avg___bought_past_month'   => null,
+                    'avg___price_from'          => 15.0,
+                    'avg___price_to'            => null,
+                    'avg___rating_value'        => null,
+                    'avg___rating_votes_count'  => null,
+                    'avg___rating_rating_max'   => null,
+                    'cnt___is_amazon_choice'    => 1,
+                    'cnt___is_best_seller'      => 1,
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('computeItemsStatsProvider')]
+    public function test_compute_items_stats_with_data_provider(array $items, array $expected): void
+    {
+        $this->parser->setStatsItemsLimit(10);
+
+        $result = $this->parser->computeItemsStats($items);
+
+        // Check JSON arrays
+        $this->assertEquals($expected['json___bought_past_month'], $result['json___bought_past_month']);
+        $this->assertEquals($expected['json___price_from'], $result['json___price_from']);
+
+        if (isset($expected['json___price_to'])) {
+            $this->assertEquals($expected['json___price_to'], $result['json___price_to']);
+        }
+        if (isset($expected['json___rating_value'])) {
+            $this->assertEquals($expected['json___rating_value'], $result['json___rating_value']);
+        }
+        if (isset($expected['json___rating_votes_count'])) {
+            $this->assertEquals($expected['json___rating_votes_count'], $result['json___rating_votes_count']);
+        }
+        if (isset($expected['json___rating_rating_max'])) {
+            $this->assertEquals($expected['json___rating_rating_max'], $result['json___rating_rating_max']);
+        }
+
+        // Check averages
+        $this->assertEquals($expected['avg___bought_past_month'], $result['avg___bought_past_month']);
+        $this->assertEquals($expected['avg___price_from'], $result['avg___price_from']);
+
+        if (isset($expected['avg___price_to'])) {
+            $this->assertEquals($expected['avg___price_to'], $result['avg___price_to']);
+        }
+        if (isset($expected['avg___rating_value'])) {
+            $this->assertEquals($expected['avg___rating_value'], $result['avg___rating_value']);
+        }
+        if (isset($expected['avg___rating_votes_count'])) {
+            $this->assertEquals($expected['avg___rating_votes_count'], $result['avg___rating_votes_count']);
+        }
+        if (isset($expected['avg___rating_rating_max'])) {
+            $this->assertEquals($expected['avg___rating_rating_max'], $result['avg___rating_rating_max']);
+        }
+
+        // Check counts
+        $this->assertEquals($expected['cnt___is_amazon_choice'], $result['cnt___is_amazon_choice']);
+        $this->assertEquals($expected['cnt___is_best_seller'], $result['cnt___is_best_seller']);
+    }
+
+    public function test_compute_products_stats_with_empty_array(): void
+    {
+        $result = $this->parser->computeProductsStats([]);
+
+        // Should return structure with empty arrays and null averages
+        $this->assertEmpty($result['json___products__price']);
+        $this->assertEmpty($result['json___products__customer_rating']);
+        $this->assertEmpty($result['json___products__customer_reviews_count']);
+        $this->assertEmpty($result['json___products__bsr_rank']);
+        $this->assertEmpty($result['json___products__normalized_date']);
+        $this->assertEmpty($result['json___products__page_count']);
+        $this->assertEmpty($result['json___products__is_available']);
+        $this->assertEmpty($result['json___products__is_amazon_choice']);
+        $this->assertEmpty($result['json___products__is_independently_published']);
+        $this->assertNull($result['avg___products__price']);
+        $this->assertNull($result['avg___products__customer_rating']);
+        $this->assertNull($result['avg___products__customer_reviews_count']);
+        $this->assertNull($result['avg___products__bsr_rank']);
+        $this->assertNull($result['avg___products__normalized_date']);
+        $this->assertNull($result['avg___products__page_count']);
+        $this->assertEquals(0, $result['cnt___products__is_available']);
+        $this->assertEquals(0, $result['cnt___products__is_amazon_choice']);
+        $this->assertEquals(0, $result['cnt___products__is_independently_published']);
+        // BSR-related fields
+        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
+        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
+        $this->assertNull($result['stdev___products__bsr_rank']);
+    }
+
+    public function test_compute_products_stats_handles_objects_and_arrays(): void
+    {
+        // Mix of objects and arrays
+        $products = [
+            (object)['price' => 10.0, 'customer_rating' => 4.5],
+            ['price' => 20.0, 'customer_rating' => 4.0],
+            (object)['price' => 30.0, 'customer_rating' => 5.0],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        $this->assertCount(3, $result['json___products__price']);
+        $this->assertEquals([10.0, 20.0, 30.0], $result['json___products__price']);
+        $this->assertEquals(20.0, $result['avg___products__price']);
+        $this->assertEquals(4.5, $result['avg___products__customer_rating']);
+    }
+
+    public function test_compute_products_stats_excludes_null_values_from_numeric_fields(): void
+    {
+        $products = [
+            ['price' => 10.0, 'customer_rating' => null],
+            ['price' => 20.0, 'customer_rating' => 4.5],
+            ['price' => null, 'customer_rating' => 5.0],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // price should only have non-null values
+        $this->assertCount(2, $result['json___products__price']);
+        $this->assertEquals([10.0, 20.0], $result['json___products__price']);
+        $this->assertEquals(15.0, $result['avg___products__price']);
+
+        // customer_rating should only have non-null values
+        $this->assertCount(2, $result['json___products__customer_rating']);
+        $this->assertEquals([4.5, 5.0], $result['json___products__customer_rating']);
+        $this->assertEquals(4.75, $result['avg___products__customer_rating']);
+    }
+
+    public function test_compute_products_stats_counts_boolean_true_values(): void
+    {
+        $products = [
+            ['is_available' => 1, 'is_amazon_choice' => 0],
+            ['is_available' => 0, 'is_amazon_choice' => 1],
+            ['is_available' => 1, 'is_amazon_choice' => 1],
+            ['is_available' => 0, 'is_amazon_choice' => 0],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        $this->assertEquals(2, $result['cnt___products__is_available']);
+        $this->assertEquals(2, $result['cnt___products__is_amazon_choice']);
+    }
+
+    public function test_compute_products_stats_computes_is_independently_published(): void
+    {
+        $products = [
+            ['publisher' => 'Independently published'],
+            ['publisher' => 'Random House'],
+            ['publisher' => 'independently Published'], // Case insensitive
+            ['publisher' => 'Penguin Books'],
+            ['publisher' => null], // Should be excluded
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Should have 4 items (excluding null)
+        $this->assertCount(4, $result['json___products__is_independently_published']);
+        $this->assertEquals([true, false, true, false], $result['json___products__is_independently_published']);
+        $this->assertEquals(2, $result['cnt___products__is_independently_published']);
+    }
+
+    public function test_compute_products_stats_computes_average_date(): void
+    {
+        $products = [
+            ['normalized_date' => '2020-01-01'],
+            ['normalized_date' => '2024-01-01'],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Average of 2020-01-01 and 2024-01-01 (accounting for leap years)
+        $this->assertEquals('2021-12-31', $result['avg___products__normalized_date']);
+    }
+
+    public function test_compute_products_stats_computes_bsr_stdev_with_single_item(): void
+    {
+        $products = [
+            ['bsr_rank' => 1000],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Standard deviation should be null for single item
+        $this->assertNull($result['stdev___products__bsr_rank']);
+    }
+
+    public function test_compute_products_stats_computes_bsr_stdev_with_multiple_items(): void
+    {
+        $products = [
+            ['bsr_rank' => 100],
+            ['bsr_rank' => 200],
+            ['bsr_rank' => 300],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Standard deviation for [100, 200, 300]:
+        // Mean = 200
+        // Variance = ((100-200)² + (200-200)² + (300-200)²) / (3-1) = (10000 + 0 + 10000) / 2 = 10000
+        // Stdev = sqrt(10000) = 100.0
+        $this->assertIsFloat($result['stdev___products__bsr_rank']);
+        $this->assertEqualsWithDelta(100.0, $result['stdev___products__bsr_rank'], 0.01);
+    }
+
+    public function test_compute_products_stats_converts_bsr_to_monthly_sales(): void
+    {
+        $products = [
+            ['bsr_rank' => 1],
+            ['bsr_rank' => 100],
+            ['bsr_rank' => 1000],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Should have monthly sales estimates for all BSR ranks
+        $this->assertCount(3, $result['json___products__bsr_rank___monthly_sales_books']);
+
+        // BSR 1 should give highest sales
+        $this->assertGreaterThan(
+            $result['json___products__bsr_rank___monthly_sales_books'][1],
+            $result['json___products__bsr_rank___monthly_sales_books'][0]
+        );
+
+        // BSR 100 should give higher sales than BSR 1000
+        $this->assertGreaterThan(
+            $result['json___products__bsr_rank___monthly_sales_books'][2],
+            $result['json___products__bsr_rank___monthly_sales_books'][1]
+        );
+
+        // Average should be computed
+        $this->assertIsFloat($result['avg___products__bsr_rank___monthly_sales_books']);
+        $this->assertGreaterThan(0, $result['avg___products__bsr_rank___monthly_sales_books']);
+    }
+
+    public function test_compute_products_stats_handles_empty_bsr_for_monthly_sales(): void
+    {
+        $products = [
+            ['price' => 10.0], // No bsr_rank
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Should have empty monthly sales array
+        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
+        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
+        $this->assertNull($result['stdev___products__bsr_rank']);
+    }
+
+    public function test_compute_products_stats_average_date_with_three_dates(): void
+    {
+        $products = [
+            ['normalized_date' => '2020-01-01'],
+            ['normalized_date' => '2021-01-01'],
+            ['normalized_date' => '2022-01-01'],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Average of three consecutive years
+        $this->assertEquals('2020-12-31', $result['avg___products__normalized_date']);
+    }
+
+    public static function computeProductsStatsProvider(): array
+    {
+        return [
+            'single product with all fields' => [
+                'products' => [
+                    [
+                        'price'                  => 29.99,
+                        'customer_rating'        => 4.5,
+                        'customer_reviews_count' => 500,
+                        'bsr_rank'               => 100,
+                        'normalized_date'        => '2023-01-01',
+                        'page_count'             => 250,
+                        'is_available'           => 1,
+                        'is_amazon_choice'       => 1,
+                        'publisher'              => 'Independently published',
+                    ],
+                ],
+                'expected' => [
+                    'json___products__price'                     => [29.99],
+                    'json___products__customer_rating'           => [4.5],
+                    'json___products__customer_reviews_count'    => [500],
+                    'json___products__bsr_rank'                  => [100],
+                    'json___products__normalized_date'           => ['2023-01-01'],
+                    'json___products__page_count'                => [250],
+                    'avg___products__price'                      => 29.99,
+                    'avg___products__customer_rating'            => 4.5,
+                    'avg___products__customer_reviews_count'     => 500.0,
+                    'avg___products__bsr_rank'                   => 100.0,
+                    'avg___products__normalized_date'            => '2023-01-01',
+                    'avg___products__page_count'                 => 250.0,
+                    'cnt___products__is_available'               => 1,
+                    'cnt___products__is_amazon_choice'           => 1,
+                    'cnt___products__is_independently_published' => 1,
+                ],
+            ],
+            'multiple products with averages' => [
+                'products' => [
+                    [
+                        'price'                  => 10.0,
+                        'customer_rating'        => 4.0,
+                        'customer_reviews_count' => 100,
+                        'bsr_rank'               => 50,
+                        'normalized_date'        => '2020-01-01',
+                        'page_count'             => 100,
+                        'is_available'           => 1,
+                        'is_amazon_choice'       => 1,
+                        'publisher'              => 'Random House',
+                    ],
+                    [
+                        'price'                  => 20.0,
+                        'customer_rating'        => 5.0,
+                        'customer_reviews_count' => 200,
+                        'bsr_rank'               => 150,
+                        'normalized_date'        => '2022-01-01',
+                        'page_count'             => 200,
+                        'is_available'           => 0,
+                        'is_amazon_choice'       => 1,
+                        'publisher'              => 'Independently published',
+                    ],
+                    [
+                        'price'                  => 30.0,
+                        'customer_rating'        => 3.0,
+                        'customer_reviews_count' => 300,
+                        'bsr_rank'               => 250,
+                        'normalized_date'        => '2024-01-01',
+                        'page_count'             => 300,
+                        'is_available'           => 1,
+                        'is_amazon_choice'       => 0,
+                        'publisher'              => 'Penguin Books',
+                    ],
+                ],
+                'expected' => [
+                    'json___products__price'                     => [10.0, 20.0, 30.0],
+                    'json___products__customer_rating'           => [4.0, 5.0, 3.0],
+                    'json___products__customer_reviews_count'    => [100, 200, 300],
+                    'json___products__bsr_rank'                  => [50, 150, 250],
+                    'json___products__normalized_date'           => ['2020-01-01', '2022-01-01', '2024-01-01'],
+                    'json___products__page_count'                => [100, 200, 300],
+                    'avg___products__price'                      => 20.0,
+                    'avg___products__customer_rating'            => 4.0,
+                    'avg___products__customer_reviews_count'     => 200.0,
+                    'avg___products__bsr_rank'                   => 150.0,
+                    'avg___products__normalized_date'            => '2021-12-31',
+                    'avg___products__page_count'                 => 200.0,
+                    'cnt___products__is_available'               => 2,
+                    'cnt___products__is_amazon_choice'           => 2,
+                    'cnt___products__is_independently_published' => 1,
+                ],
+            ],
+            'products with missing fields' => [
+                'products' => [
+                    [
+                        'price'        => 10.0,
+                        'is_available' => 1,
+                        'publisher'    => 'Random House',
+                    ],
+                    [
+                        'price'            => 20.0,
+                        'is_amazon_choice' => 1,
+                        'publisher'        => 'Independently published',
+                    ],
+                ],
+                'expected' => [
+                    'json___products__price'                     => [10.0, 20.0],
+                    'json___products__customer_rating'           => [],
+                    'json___products__customer_reviews_count'    => [],
+                    'json___products__bsr_rank'                  => [],
+                    'json___products__normalized_date'           => [],
+                    'json___products__page_count'                => [],
+                    'avg___products__price'                      => 15.0,
+                    'avg___products__customer_rating'            => null,
+                    'avg___products__customer_reviews_count'     => null,
+                    'avg___products__bsr_rank'                   => null,
+                    'avg___products__normalized_date'            => null,
+                    'avg___products__page_count'                 => null,
+                    'cnt___products__is_available'               => 1,
+                    'cnt___products__is_amazon_choice'           => 1,
+                    'cnt___products__is_independently_published' => 1,
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('computeProductsStatsProvider')]
+    public function test_compute_products_stats_with_data_provider(array $products, array $expected): void
+    {
+        $result = $this->parser->computeProductsStats($products);
+
+        // Check JSON arrays
+        $this->assertEquals($expected['json___products__price'], $result['json___products__price']);
+        $this->assertEquals($expected['json___products__customer_rating'], $result['json___products__customer_rating']);
+        $this->assertEquals($expected['json___products__customer_reviews_count'], $result['json___products__customer_reviews_count']);
+        $this->assertEquals($expected['json___products__bsr_rank'], $result['json___products__bsr_rank']);
+        $this->assertEquals($expected['json___products__normalized_date'], $result['json___products__normalized_date']);
+        $this->assertEquals($expected['json___products__page_count'], $result['json___products__page_count']);
+
+        // Check averages
+        $this->assertEquals($expected['avg___products__price'], $result['avg___products__price']);
+        $this->assertEquals($expected['avg___products__customer_rating'], $result['avg___products__customer_rating']);
+        $this->assertEquals($expected['avg___products__customer_reviews_count'], $result['avg___products__customer_reviews_count']);
+        $this->assertEquals($expected['avg___products__bsr_rank'], $result['avg___products__bsr_rank']);
+        $this->assertEquals($expected['avg___products__normalized_date'], $result['avg___products__normalized_date']);
+        $this->assertEquals($expected['avg___products__page_count'], $result['avg___products__page_count']);
+
+        // Check counts
+        $this->assertEquals($expected['cnt___products__is_available'], $result['cnt___products__is_available']);
+        $this->assertEquals($expected['cnt___products__is_amazon_choice'], $result['cnt___products__is_amazon_choice']);
+        $this->assertEquals($expected['cnt___products__is_independently_published'], $result['cnt___products__is_independently_published']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_with_minimal_data(): void
+    {
+        $listingsRow = [
+            'id'               => 123,
+            'keyword'          => 'test keyword',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 1000,
+            'items_count'      => 50,
+        ];
+
+        $items    = [];
+        $products = [];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check primary identifiers
+        $this->assertEquals('test keyword', $result['keyword']);
+        $this->assertEquals(2840, $result['location_code']);
+        $this->assertEquals('en_US', $result['language_code']);
+        $this->assertEquals('desktop', $result['device']);
+        $this->assertEquals(123, $result['dataforseo_merchant_amazon_products_listings_id']);
+        $this->assertEquals(1000, $result['se_results_count']);
+        $this->assertEquals(50, $result['items_count']);
+
+        // Check that items stats are empty
+        $this->assertEmpty($result['json___bought_past_month']);
+        $this->assertNull($result['avg___bought_past_month']);
+        $this->assertEquals(0, $result['cnt___is_amazon_choice']);
+
+        // Check that products stats are empty
+        $this->assertEmpty($result['json___products__price']);
+        $this->assertNull($result['avg___products__price']);
+        $this->assertEquals(0, $result['cnt___products__is_available']);
+
+        // Check that BSR-related fields are empty/null
+        $this->assertNull($result['stdev___products__bsr_rank']);
+        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
+        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
+
+        // Check score fields are null
+        $this->assertNull($result['score_1']);
+        $this->assertNull($result['score_10']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_integrates_items_stats(): void
+    {
+        $listingsRow = [
+            'id'               => 789,
+            'keyword'          => 'integration test',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 500,
+            'items_count'      => 10,
+        ];
+
+        $items = [
+            ['rank_absolute' => 1, 'price_from' => 10.0, 'rating_value' => 4.5],
+            ['rank_absolute' => 2, 'price_from' => 20.0, 'rating_value' => 5.0],
+        ];
+
+        $products = [];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check items stats are integrated
+        $this->assertCount(2, $result['json___price_from']);
+        $this->assertEquals([10.0, 20.0], $result['json___price_from']);
+        $this->assertEquals(15.0, $result['avg___price_from']);
+        $this->assertEquals(4.75, $result['avg___rating_value']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_integrates_products_stats(): void
+    {
+        $listingsRow = [
+            'id'               => 999,
+            'keyword'          => 'products test',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 300,
+            'items_count'      => 5,
+        ];
+
+        $items = [];
+
+        $products = [
+            ['price' => 100.0, 'customer_rating' => 4.0, 'is_available' => 1, 'bsr_rank' => 100],
+            ['price' => 200.0, 'customer_rating' => 5.0, 'is_available' => 1, 'bsr_rank' => 200],
+        ];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check products stats are integrated
+        $this->assertCount(2, $result['json___products__price']);
+        $this->assertEquals([100.0, 200.0], $result['json___products__price']);
+        $this->assertEquals(150.0, $result['avg___products__price']);
+        $this->assertEquals(4.5, $result['avg___products__customer_rating']);
+        $this->assertEquals(2, $result['cnt___products__is_available']);
+
+        // Check BSR-related fields are integrated
+        $this->assertCount(2, $result['json___products__bsr_rank___monthly_sales_books']);
+        $this->assertIsFloat($result['avg___products__bsr_rank___monthly_sales_books']);
+        $this->assertGreaterThan(0, $result['avg___products__bsr_rank___monthly_sales_books']);
+        $this->assertIsFloat($result['stdev___products__bsr_rank']); // Computed for n=2
+        $this->assertGreaterThan(0, $result['stdev___products__bsr_rank']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_integrates_both_items_and_products(): void
+    {
+        $listingsRow = [
+            'id'               => 111,
+            'keyword'          => 'full integration',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 1500,
+            'items_count'      => 20,
+        ];
+
+        $items = [
+            ['rank_absolute' => 1, 'price_from' => 50.0, 'is_amazon_choice' => 1],
+            ['rank_absolute' => 2, 'price_from' => 60.0, 'is_best_seller' => 1],
+        ];
+
+        $products = [
+            ['price' => 55.0, 'customer_rating' => 4.5, 'publisher' => 'Independently published'],
+            ['price' => 65.0, 'customer_rating' => 4.8, 'publisher' => 'Random House'],
+        ];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check listings data
+        $this->assertEquals('full integration', $result['keyword']);
+        $this->assertEquals(111, $result['dataforseo_merchant_amazon_products_listings_id']);
+        $this->assertEquals(1500, $result['se_results_count']);
+        $this->assertEquals(20, $result['items_count']);
+
+        // Check items stats
+        $this->assertEquals([50.0, 60.0], $result['json___price_from']);
+        $this->assertEquals(55.0, $result['avg___price_from']);
+        $this->assertEquals(1, $result['cnt___is_amazon_choice']);
+        $this->assertEquals(1, $result['cnt___is_best_seller']);
+
+        // Check products stats
+        $this->assertEquals([55.0, 65.0], $result['json___products__price']);
+        $this->assertEquals(60.0, $result['avg___products__price']);
+        $this->assertEquals(4.65, $result['avg___products__customer_rating']);
+        $this->assertEquals(1, $result['cnt___products__is_independently_published']);
+
+        // Check score fields
+        $this->assertNull($result['score_1']);
+        $this->assertNull($result['score_5']);
+        $this->assertNull($result['score_10']);
+    }
+
+    public static function computeAmazonKeywordsStatsRowProvider(): array
+    {
+        return [
+            'complete data with all fields' => [
+                'listingsRow' => [
+                    'id'               => 1,
+                    'keyword'          => 'test product',
+                    'location_code'    => 2840,
+                    'language_code'    => 'en_US',
+                    'device'           => 'desktop',
+                    'se_results_count' => 5000,
+                    'items_count'      => 100,
+                ],
+                'items' => [
+                    [
+                        'rank_absolute'      => 1,
+                        'bought_past_month'  => 1000,
+                        'price_from'         => 29.99,
+                        'rating_value'       => 4.5,
+                        'rating_votes_count' => 500,
+                        'is_amazon_choice'   => 1,
+                        'is_best_seller'     => 0,
+                    ],
+                    [
+                        'rank_absolute'      => 2,
+                        'bought_past_month'  => 2000,
+                        'price_from'         => 39.99,
+                        'rating_value'       => 5.0,
+                        'rating_votes_count' => 1000,
+                        'is_amazon_choice'   => 0,
+                        'is_best_seller'     => 1,
+                    ],
+                ],
+                'products' => [
+                    [
+                        'price'                  => 25.00,
+                        'customer_rating'        => 4.3,
+                        'customer_reviews_count' => 250,
+                        'bsr_rank'               => 100,
+                        'is_available'           => 1,
+                        'is_amazon_choice'       => 1,
+                        'publisher'              => 'Random House',
+                    ],
+                    [
+                        'price'                  => 35.00,
+                        'customer_rating'        => 4.7,
+                        'customer_reviews_count' => 750,
+                        'bsr_rank'               => 200,
+                        'is_available'           => 1,
+                        'is_amazon_choice'       => 0,
+                        'publisher'              => 'Independently published',
+                    ],
+                ],
+                'expected' => [
+                    'keyword'                                         => 'test product',
+                    'location_code'                                   => 2840,
+                    'language_code'                                   => 'en_US',
+                    'device'                                          => 'desktop',
+                    'dataforseo_merchant_amazon_products_listings_id' => 1,
+                    'se_results_count'                                => 5000,
+                    'items_count'                                     => 100,
+                    'avg___bought_past_month'                         => 1500.0,
+                    'avg___price_from'                                => 34.99,
+                    'avg___rating_value'                              => 4.75,
+                    'cnt___is_amazon_choice'                          => 1,
+                    'cnt___is_best_seller'                            => 1,
+                    'avg___products__price'                           => 30.0,
+                    'avg___products__customer_rating'                 => 4.5,
+                    'avg___products__customer_reviews_count'          => 500.0,
+                    'avg___products__bsr_rank'                        => 150.0,
+                    'cnt___products__is_available'                    => 2,
+                    'cnt___products__is_amazon_choice'                => 1,
+                    'cnt___products__is_independently_published'      => 1,
+                ],
+            ],
+            'empty items and products' => [
+                'listingsRow' => [
+                    'id'               => 2,
+                    'keyword'          => 'empty test',
+                    'location_code'    => 2840,
+                    'language_code'    => 'en_US',
+                    'device'           => 'mobile',
+                    'se_results_count' => 100,
+                    'items_count'      => 0,
+                ],
+                'items'    => [],
+                'products' => [],
+                'expected' => [
+                    'keyword'                                         => 'empty test',
+                    'location_code'                                   => 2840,
+                    'language_code'                                   => 'en_US',
+                    'device'                                          => 'mobile',
+                    'dataforseo_merchant_amazon_products_listings_id' => 2,
+                    'se_results_count'                                => 100,
+                    'items_count'                                     => 0,
+                    'avg___bought_past_month'                         => null,
+                    'avg___price_from'                                => null,
+                    'cnt___is_amazon_choice'                          => 0,
+                    'cnt___is_best_seller'                            => 0,
+                    'avg___products__price'                           => null,
+                    'avg___products__customer_rating'                 => null,
+                    'cnt___products__is_available'                    => 0,
+                    'cnt___products__is_independently_published'      => 0,
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('computeAmazonKeywordsStatsRowProvider')]
+    public function test_compute_amazon_keywords_stats_row_with_data_provider(
+        array $listingsRow,
+        array $items,
+        array $products,
+        array $expected
+    ): void {
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check primary identifiers
+        $this->assertEquals($expected['keyword'], $result['keyword']);
+        $this->assertEquals($expected['location_code'], $result['location_code']);
+        $this->assertEquals($expected['language_code'], $result['language_code']);
+        $this->assertEquals($expected['device'], $result['device']);
+        $this->assertEquals($expected['dataforseo_merchant_amazon_products_listings_id'], $result['dataforseo_merchant_amazon_products_listings_id']);
+        $this->assertEquals($expected['se_results_count'], $result['se_results_count']);
+        $this->assertEquals($expected['items_count'], $result['items_count']);
+
+        // Check items stats
+        $this->assertEquals($expected['avg___bought_past_month'], $result['avg___bought_past_month']);
+        $this->assertEquals($expected['avg___price_from'], $result['avg___price_from']);
+        $this->assertEquals($expected['cnt___is_amazon_choice'], $result['cnt___is_amazon_choice']);
+        $this->assertEquals($expected['cnt___is_best_seller'], $result['cnt___is_best_seller']);
+
+        // Check products stats
+        $this->assertEquals($expected['avg___products__price'], $result['avg___products__price']);
+        $this->assertEquals($expected['avg___products__customer_rating'], $result['avg___products__customer_rating']);
+        $this->assertEquals($expected['cnt___products__is_available'], $result['cnt___products__is_available']);
+        $this->assertEquals($expected['cnt___products__is_independently_published'], $result['cnt___products__is_independently_published']);
+
+        if (isset($expected['avg___products__customer_reviews_count'])) {
+            $this->assertEquals($expected['avg___products__customer_reviews_count'], $result['avg___products__customer_reviews_count']);
+        }
+        if (isset($expected['avg___products__bsr_rank'])) {
+            $this->assertEquals($expected['avg___products__bsr_rank'], $result['avg___products__bsr_rank']);
+        }
+        if (isset($expected['avg___rating_value'])) {
+            $this->assertEquals($expected['avg___rating_value'], $result['avg___rating_value']);
+        }
+
+        // Check score fields are null
+        $this->assertNull($result['score_1']);
+        $this->assertNull($result['score_10']);
     }
 }

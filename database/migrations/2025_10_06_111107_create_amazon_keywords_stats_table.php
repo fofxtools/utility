@@ -69,6 +69,13 @@ return new class () extends Migration {
             $table->integer('cnt___products__is_amazon_choice')->nullable()->index();
             $table->integer('cnt___products__is_independently_published')->nullable()->index();
 
+            // Standard deviation in BSR rank
+            $table->float('stdev___products__bsr_rank')->nullable()->index();
+
+            // BSR to monthly sales estimate (books only)
+            $table->json('json___products__bsr_rank___monthly_sales_books')->nullable();
+            $table->float('avg___products__bsr_rank___monthly_sales_books')->nullable()->index();
+
             // Computed scores
             $table->float('score_1')->nullable()->index();
             $table->float('score_2')->nullable()->index();

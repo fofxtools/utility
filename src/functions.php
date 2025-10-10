@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Pdp\Rules;
 use Pdp\Domain;
 use FOfX\Helper;
@@ -500,4 +501,150 @@ function ensure_table_exists(string $tableName, string $migrationFilename): void
     Log::debug('Created missing table', ['table' => $tableName, 'migration_filename' => $migrationFilename]);
 
     $executed[$key] = true;
+}
+
+/**
+ * Determine KDP trim size category ("regular" or "large") from dimension string.
+ *
+ * String must contain "inch" and at least two numeric dimensions.
+ *
+ * Examples:
+ *   "8.5 x 0.24 x 11 inches"   → "large"
+ *   "6 x 0.45 x 9 inches"      → "regular"
+ *   "11.4 x 8.3 x 0.21 inches" → "large"
+ *   "9.84 x 9.84 x 0.2 inches" → "large"
+ *
+ * @return string|null "large", "regular", or null if unparsable
+ */
+function kdp_trim_size_inches(string $dimensions): ?string
+{
+    // Verify that the string contains "inch"
+    if (!Str::contains($dimensions, 'inch', ignoreCase: true)) {
+        return null;
+    }
+
+    if (!preg_match_all('/\d+(?:\.\d+)?/u', $dimensions, $m)) {
+        return null; // can't parse numbers
+    }
+
+    $nums = array_map('floatval', $m[0]);
+    if (count($nums) < 2) {
+        return null;
+    }
+
+    // Take two largest numbers as trim width & height
+    // Assume height is the largest dimension
+    rsort($nums, SORT_NUMERIC);
+    $height = $nums[0];
+    $width  = $nums[1];
+
+    // Apply KDP large-trim rule
+    $isLarge = $width > 6.12 || $height > 9.0;
+
+    return $isLarge ? 'large' : 'regular';
+}
+
+/**
+ * Calculate US KDP (Kindle Direct Publishing) print cost for paperback books
+ *
+ * Note: This uses US marketplace pricing. Other marketplaces (UK, EU, etc.) have different rates.
+ *
+ * Ranges (US):
+ * - Black ink: 24–108 => fixed only; >108–828 => fixed + per-page
+ * - Premium color: 24–40 => fixed only; 42–828 => fixed + per-page (41 assumed to be in 42-828)
+ * - Standard color: 72–600 => fixed + per-page
+ *
+ * @param int  $numPages        Number of pages in the book (24-828, or 72-600 for standard color)
+ * @param bool $isColor         Whether the book uses color printing (default: false)
+ * @param bool $isPremiumInk    Whether premium color ink is used (default: false)
+ * @param bool $isTrimSizeLarge Whether the trim size is large (default: false)
+ *
+ * @throws \InvalidArgumentException If page count is out of valid range
+ *
+ * @return float Print cost in USD
+ *
+ * @see https://kdp.amazon.com/en_US/help/topic/G201834340
+ */
+function kdp_print_cost_us(
+    int $numPages,
+    bool $isColor = false,
+    bool $isPremiumInk = false,
+    bool $isTrimSizeLarge = false
+): float {
+    // To avoid errors, assume minimum 72 pages for color (non-premium), and minimum 24 pages otherwise
+    if ($isColor && !$isPremiumInk && $numPages < 72) {
+        $numPages = 72;
+    } elseif ($numPages < 24) {
+        $numPages = 24;
+    }
+
+    // Ensure valid page count
+    if ($numPages > 828) {
+        throw new \InvalidArgumentException("Paperback page count can't be greater than 828");
+    }
+    if ($isColor && !$isPremiumInk && $numPages > 600) {
+        throw new \InvalidArgumentException("Paperback page count for standard color can't be greater than 600");
+    }
+
+    // Calculate fixed costs based on specifications
+    if ($isColor) {
+        // Color ink printing costs
+        if ($isPremiumInk) {
+            // Premium color
+            if ($numPages <= 40) {
+                $fixedCost   = !$isTrimSizeLarge ? 3.6 : 4.2;
+                $perPageCost = 0;
+            } else {
+                $fixedCost   = 1;
+                $perPageCost = !$isTrimSizeLarge ? 0.065 : 0.08;
+            }
+        } else {
+            // Standard color
+            $fixedCost   = 1;
+            $perPageCost = !$isTrimSizeLarge ? 0.0255 : 0.0402;
+        }
+    } else {
+        // Black ink printing costs
+        if ($numPages <= 108) {
+            $fixedCost   = !$isTrimSizeLarge ? 2.3 : 2.84;
+            $perPageCost = 0;
+        } else {
+            $fixedCost   = 1;
+            $perPageCost = !$isTrimSizeLarge ? 0.012 : 0.017;
+        }
+    }
+
+    // Return the total print cost
+    return $fixedCost + ($numPages * $perPageCost);
+}
+
+/**
+ * Calculate US KDP (Kindle Direct Publishing) royalty for paperback books
+ *
+ * Note: This uses US marketplace pricing. Other marketplaces (UK, EU, etc.) have different rates.
+ *
+ * @param float $listPrice       List price in USD
+ * @param int   $numPages        Number of pages in the book
+ * @param bool  $isColor         Whether the book uses color printing (default: false)
+ * @param bool  $isPremiumInk    Whether premium color ink is used (default: false)
+ * @param bool  $isTrimSizeLarge Whether the trim size is large (default: false)
+ *
+ * @throws \InvalidArgumentException If page count is out of valid range
+ *
+ * @return float Royalty amount in USD
+ */
+function kdp_royalty_us(
+    float $listPrice,
+    int $numPages,
+    bool $isColor = false,
+    bool $isPremiumInk = false,
+    bool $isTrimSizeLarge = false
+): float {
+    // 50% if price <= 9.98, else 60% (US thresholds)
+    $royaltyRate = $listPrice <= 9.98 ? 0.5 : 0.6;
+
+    $royalty   = $royaltyRate * $listPrice;
+    $printCost = kdp_print_cost_us($numPages, $isColor, $isPremiumInk, $isTrimSizeLarge);
+
+    return $royalty - $printCost;
 }
