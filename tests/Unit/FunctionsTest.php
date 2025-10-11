@@ -30,6 +30,7 @@ use function FOfX\Utility\ensure_table_exists;
 use function FOfX\Utility\kdp_trim_size_inches;
 use function FOfX\Utility\kdp_print_cost_us;
 use function FOfX\Utility\kdp_royalty_us;
+use function FOfX\Utility\bsr_to_monthly_sales_books;
 
 class FunctionsTest extends TestCase
 {
@@ -1623,5 +1624,134 @@ PHP;
     {
         $this->expectException(\InvalidArgumentException::class);
         kdp_royalty_us(15.99, 829, false, false, false);
+    }
+
+    public function test_bsr_to_monthly_sales_books_with_null(): void
+    {
+        $result = bsr_to_monthly_sales_books(null);
+        $this->assertNull($result);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_1_high_volume(): void
+    {
+        // BSR 1-100: High-volume sellers
+        $result = bsr_to_monthly_sales_books(1);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // BSR 1 should give highest sales
+        $bsr1   = bsr_to_monthly_sales_books(1);
+        $bsr100 = bsr_to_monthly_sales_books(100);
+        $this->assertGreaterThan($bsr100, $bsr1);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_2_mid_range(): void
+    {
+        // BSR 101-100,000: Mid-range sellers
+        $result = bsr_to_monthly_sales_books(1000);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // Lower BSR should give higher sales
+        $bsr101    = bsr_to_monthly_sales_books(101);
+        $bsr100000 = bsr_to_monthly_sales_books(100000);
+        $this->assertGreaterThan($bsr100000, $bsr101);
+    }
+
+    public function test_bsr_to_monthly_sales_books_tier_3_long_tail(): void
+    {
+        // BSR 100,001+: Long-tail sellers
+        $result = bsr_to_monthly_sales_books(500000);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThan(0, $result);
+
+        // Lower BSR should give higher sales
+        $bsr100001  = bsr_to_monthly_sales_books(100001);
+        $bsr1000000 = bsr_to_monthly_sales_books(1000000);
+        $this->assertGreaterThan($bsr1000000, $bsr100001);
+    }
+
+    public function test_bsr_to_monthly_sales_books_boundary_values(): void
+    {
+        // Test boundary between tier 1 and tier 2
+        // Note: There may be a discontinuity at boundaries due to different formulas
+        $bsr100 = bsr_to_monthly_sales_books(100);
+        $bsr101 = bsr_to_monthly_sales_books(101);
+        // Both should be positive
+        $this->assertGreaterThan(0, $bsr100);
+        $this->assertGreaterThan(0, $bsr101);
+
+        // Test boundary between tier 2 and tier 3
+        $bsr100000 = bsr_to_monthly_sales_books(100000);
+        $bsr100001 = bsr_to_monthly_sales_books(100001);
+        // Both should be positive
+        $this->assertGreaterThan(0, $bsr100000);
+        $this->assertGreaterThan(0, $bsr100001);
+    }
+
+    public static function bsrToMonthlySalesBooksProvider(): array
+    {
+        return [
+            'BSR 1 (best seller)' => [
+                'bsr'      => 1,
+                'expected' => 84175.0,
+            ],
+            'BSR 10 (top 10)' => [
+                'bsr'      => 10,
+                'expected' => 29253.86,
+            ],
+            'BSR 100 (tier 1 boundary)' => [
+                'bsr'      => 100,
+                'expected' => 10166.77,
+            ],
+            'BSR 101 (tier 2 start)' => [
+                'bsr'      => 101,
+                'expected' => 11234.31,
+            ],
+            'BSR 1,000 (mid-range)' => [
+                'bsr'      => 1000,
+                'expected' => 1940.24,
+            ],
+            'BSR 10,000 (mid-range)' => [
+                'bsr'      => 10000,
+                'expected' => 332.55,
+            ],
+            'BSR 100,000 (tier 2 boundary)' => [
+                'bsr'      => 100000,
+                'expected' => 57.00,
+            ],
+            'BSR 100,001 (tier 3 start)' => [
+                'bsr'      => 100001,
+                'expected' => 48.15,
+            ],
+            'BSR 500,000 (long tail)' => [
+                'bsr'      => 500000,
+                'expected' => 9.91,
+            ],
+            'BSR 1,000,000 (deep long tail)' => [
+                'bsr'      => 1000000,
+                'expected' => 5.02,
+            ],
+            'BSR 5,000,000 (very deep long tail)' => [
+                'bsr'      => 5000000,
+                'expected' => 1.03,
+            ],
+            'BSR 10,000,000 (extremely deep long tail)' => [
+                'bsr'      => 10000000,
+                'expected' => 0.52,
+            ],
+        ];
+    }
+
+    #[DataProvider('bsrToMonthlySalesBooksProvider')]
+    public function test_bsr_to_monthly_sales_books_with_data_provider(
+        int $bsr,
+        float $expected
+    ): void {
+        $result = bsr_to_monthly_sales_books($bsr);
+
+        $this->assertIsFloat($result);
+        // Use delta of 0.01 for floating-point comparison
+        $this->assertEqualsWithDelta($expected, $result, 0.01, "BSR {$bsr} should produce approximately {$expected} monthly sales");
     }
 }

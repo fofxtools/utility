@@ -1054,6 +1054,46 @@ class AmazonProductPageParser
             $details['normalized_date'] = $normalizedDate;
         }
 
+        // Add KDP fields if independently published
+        $publisher = $details['publisher'] ?? null;
+        if ($publisher !== null && Str::contains($publisher, 'Independently published', ignoreCase: true)) {
+            // Get trim size from dimensions (books use 'dimensions', non-books use 'product_dimensions')
+            $dimensions = $details['dimensions'] ?? null;
+            if ($dimensions !== null) {
+                $kdpTrimSize = kdp_trim_size_inches($dimensions);
+                if ($kdpTrimSize !== null) {
+                    $details['kdp_trim_size'] = $kdpTrimSize;
+                }
+            }
+
+            // Calculate KDP royalty estimate (assuming black ink)
+            $price = $details['price'] ?? null;
+            if ($price !== null && $pageCount !== null && isset($details['kdp_trim_size'])) {
+                $isTrimSizeLarge = $details['kdp_trim_size'] === 'large';
+
+                try {
+                    $kdpRoyalty = kdp_royalty_us(
+                        listPrice: (float) $price,
+                        numPages: $pageCount,
+                        isColor: false,
+                        isPremiumInk: false,
+                        isTrimSizeLarge: $isTrimSizeLarge
+                    );
+                    $details['kdp_royalty_estimate'] = $kdpRoyalty;
+                } catch (\InvalidArgumentException $e) {
+                    // Page count out of valid range, skip royalty calculation
+                }
+            }
+        }
+
+        // Calculate monthly sales estimate from BSR
+        if ($bsrRank !== null) {
+            $monthlySales = bsr_to_monthly_sales_books($bsrRank);
+            if ($monthlySales !== null) {
+                $details['bsr_monthly_sales_estimate_books'] = (int) round($monthlySales);
+            }
+        }
+
         return $details;
     }
 
@@ -1083,6 +1123,12 @@ class AmazonProductPageParser
             ];
         }
 
+        // If first category is Books, set monthly_sales_estimate from bsr_monthly_sales_estimate_books
+        $monthlySalesEstimate = null;
+        if (isset($data['categories'][0]) && strtolower($data['categories'][0]) === 'books') {
+            $monthlySalesEstimate = $data['bsr_monthly_sales_estimate_books'] ?? null;
+        }
+
         // Prepare data for insertion
         $insertData = [
             'asin'                   => $asin,
@@ -1103,6 +1149,9 @@ class AmazonProductPageParser
             'bsr_category'           => $data['bsr_category'] ?? null,
             'normalized_date'        => $data['normalized_date'] ?? null,
             'page_count'             => $data['page_count'] ?? null,
+            'kdp_trim_size'          => $data['kdp_trim_size'] ?? null,
+            'kdp_royalty_estimate'   => $data['kdp_royalty_estimate'] ?? null,
+            'monthly_sales_estimate' => $monthlySalesEstimate,
             'processed_at'           => null,
             'processed_status'       => null,
             'created_at'             => now(),
@@ -1126,33 +1175,6 @@ class AmazonProductPageParser
                 'asin'     => $asin,
                 'reason'   => 'duplicate',
             ];
-        }
-    }
-
-    /**
-     * Convert BSR (Best Sellers Rank) to estimated monthly sales for books
-     *
-     * Uses power-law regression formulas based on Amazon book sales data:
-     * - BSR 1-100: High-volume sellers
-     * - BSR 101-100,000: Mid-range sellers
-     * - BSR 100,001+: Long-tail sellers
-     *
-     * @param int|null $bsr Best Sellers Rank (1 = best selling)
-     *
-     * @return float|null Estimated monthly sales, or null if BSR is null
-     */
-    public function bsrToMonthlySalesBooks(?int $bsr): ?float
-    {
-        if ($bsr === null) {
-            return null;
-        }
-
-        if ($bsr <= 100) {
-            return 84175 * pow($bsr, -0.459);
-        } elseif ($bsr <= 100000) {
-            return 385351 * pow($bsr, -0.766);
-        } else {
-            return 3913789 * pow($bsr, -0.982);
         }
     }
 
@@ -1309,6 +1331,8 @@ class AmazonProductPageParser
             'json___products__is_available'               => [],
             'json___products__is_amazon_choice'           => [],
             'json___products__is_independently_published' => [],
+            'json___products__kdp_royalty_estimate'       => [],
+            'json___products__monthly_sales_estimate'     => [],
             // Averages
             'avg___products__price'                  => null,
             'avg___products__customer_rating'        => null,
@@ -1316,15 +1340,14 @@ class AmazonProductPageParser
             'avg___products__bsr_rank'               => null,
             'avg___products__normalized_date'        => null,
             'avg___products__page_count'             => null,
+            'avg___products__kdp_royalty_estimate'   => null,
+            'avg___products__monthly_sales_estimate' => null,
             // Counts
             'cnt___products__is_available'               => 0,
             'cnt___products__is_amazon_choice'           => 0,
             'cnt___products__is_independently_published' => 0,
             // Standard deviation in BSR rank
             'stdev___products__bsr_rank' => null,
-            // BSR to monthly sales estimate (books only)
-            'json___products__bsr_rank___monthly_sales_books' => [],
-            'avg___products__bsr_rank___monthly_sales_books'  => null,
         ];
 
         // Collect values for JSON arrays and averages
@@ -1363,6 +1386,16 @@ class AmazonProductPageParser
             $pageCount = $getValue('page_count');
             if ($pageCount !== null) {
                 $stats['json___products__page_count'][] = (int) $pageCount;
+            }
+
+            $kdpRoyaltyEstimate = $getValue('kdp_royalty_estimate');
+            if ($kdpRoyaltyEstimate !== null) {
+                $stats['json___products__kdp_royalty_estimate'][] = (float) $kdpRoyaltyEstimate;
+            }
+
+            $monthlySalesEstimate = $getValue('monthly_sales_estimate');
+            if ($monthlySalesEstimate !== null) {
+                $stats['json___products__monthly_sales_estimate'][] = (int) $monthlySalesEstimate;
             }
 
             // Collect boolean values
@@ -1409,6 +1442,12 @@ class AmazonProductPageParser
         $stats['avg___products__page_count'] = !empty($stats['json___products__page_count'])
             ? array_sum($stats['json___products__page_count']) / count($stats['json___products__page_count'])
             : null;
+        $stats['avg___products__kdp_royalty_estimate'] = !empty($stats['json___products__kdp_royalty_estimate'])
+            ? array_sum($stats['json___products__kdp_royalty_estimate']) / count($stats['json___products__kdp_royalty_estimate'])
+            : null;
+        $stats['avg___products__monthly_sales_estimate'] = !empty($stats['json___products__monthly_sales_estimate'])
+            ? array_sum($stats['json___products__monthly_sales_estimate']) / count($stats['json___products__monthly_sales_estimate'])
+            : null;
 
         // Compute average date (convert to timestamps, average, convert back)
         if (!empty($stats['json___products__normalized_date'])) {
@@ -1424,20 +1463,6 @@ class AmazonProductPageParser
         } else {
             $stats['stdev___products__bsr_rank'] = null;
         }
-
-        // Convert BSR ranks to monthly sales estimates (based on books category)
-        $stats['json___products__bsr_rank___monthly_sales_books'] = [];
-        foreach ($stats['json___products__bsr_rank'] as $bsr) {
-            $monthlySales = $this->bsrToMonthlySalesBooks($bsr);
-            if ($monthlySales !== null) {
-                $stats['json___products__bsr_rank___monthly_sales_books'][] = $monthlySales;
-            }
-        }
-
-        // Compute average monthly sales
-        $stats['avg___products__bsr_rank___monthly_sales_books'] = !empty($stats['json___products__bsr_rank___monthly_sales_books'])
-            ? array_sum($stats['json___products__bsr_rank___monthly_sales_books']) / count($stats['json___products__bsr_rank___monthly_sales_books'])
-            : null;
 
         return $stats;
     }

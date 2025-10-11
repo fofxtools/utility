@@ -55,6 +55,8 @@ return new class () extends Migration {
             $table->json('json___products__is_available')->nullable();
             $table->json('json___products__is_amazon_choice')->nullable();
             $table->json('json___products__is_independently_published')->nullable();
+            $table->json('json___products__kdp_royalty_estimate')->nullable();
+            $table->json('json___products__monthly_sales_estimate')->nullable();
 
             // From amazon_products - Averages
             $table->float('avg___products__price')->nullable()->index();
@@ -63,6 +65,8 @@ return new class () extends Migration {
             $table->float('avg___products__bsr_rank')->nullable()->index();
             $table->date('avg___products__normalized_date')->nullable()->index();
             $table->float('avg___products__page_count')->nullable()->index();
+            $table->float('avg___products__kdp_royalty_estimate')->nullable()->index();
+            $table->float('avg___products__monthly_sales_estimate')->nullable()->index();
 
             // From amazon_products - Counts
             $table->integer('cnt___products__is_available')->nullable()->index();
@@ -71,10 +75,6 @@ return new class () extends Migration {
 
             // Standard deviation in BSR rank
             $table->float('stdev___products__bsr_rank')->nullable()->index();
-
-            // BSR to monthly sales estimate (books only)
-            $table->json('json___products__bsr_rank___monthly_sales_books')->nullable();
-            $table->float('avg___products__bsr_rank___monthly_sales_books')->nullable()->index();
 
             // Computed scores
             $table->float('score_1')->nullable()->index();

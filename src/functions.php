@@ -648,3 +648,34 @@ function kdp_royalty_us(
 
     return $royalty - $printCost;
 }
+
+/**
+ * Convert BSR (Best Sellers Rank) to estimated monthly sales for books
+ *
+ * Formula based on results from Amazon book sales calculator in the linked URL.
+ *
+ * Uses power-law regression formulas based on Amazon book sales data:
+ * - BSR 1-100: High-volume sellers
+ * - BSR 101-100,000: Mid-range sellers
+ * - BSR 100,001+: Long-tail sellers
+ *
+ * @param int|null $bsr Best Sellers Rank (1 = best selling)
+ *
+ * @return float|null Estimated monthly sales, or null if BSR is null
+ *
+ * @see https://www.tckpublishing.com/amazon-book-sales-calculator/
+ */
+function bsr_to_monthly_sales_books(?int $bsr): ?float
+{
+    if ($bsr === null) {
+        return null;
+    }
+
+    if ($bsr <= 100) {
+        return 84175 * pow($bsr, -0.459);
+    } elseif ($bsr <= 100000) {
+        return 385351 * pow($bsr, -0.766);
+    } else {
+        return 3913789 * pow($bsr, -0.982);
+    }
+}

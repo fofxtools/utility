@@ -27,6 +27,9 @@ return new class () extends Migration {
             $table->string('bsr_category')->nullable()->index();
             $table->date('normalized_date')->nullable()->index();
             $table->unsignedInteger('page_count')->nullable()->index();
+            $table->string('kdp_trim_size')->nullable()->index();
+            $table->decimal('kdp_royalty_estimate', 10, 2)->nullable()->index();
+            $table->unsignedInteger('monthly_sales_estimate')->nullable()->index();
             $table->timestamps();
             $table->timestamp('processed_at')->nullable()->index();
             $table->json('processed_status')->nullable();

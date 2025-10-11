@@ -1167,6 +1167,395 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEquals($expectedOriginal, $result);
     }
 
+    public function test_parseAll_adds_page_count_field(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Print Length :</span> 103 pages
+                    </li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        $this->assertArrayHasKey('page_count', $result);
+        $this->assertEquals(103, $result['page_count']);
+    }
+
+    public function test_parseAll_adds_bsr_rank_field(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #18,775 in Books (See Top 100 in Books)</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        $this->assertArrayHasKey('bsr_rank', $result);
+        $this->assertEquals(18775, $result['bsr_rank']);
+    }
+
+    public function test_parseAll_adds_bsr_category_field(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #18,775 in Books (See Top 100 in Books)</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        $this->assertArrayHasKey('bsr_category', $result);
+        $this->assertEquals('Books', $result['bsr_category']);
+    }
+
+    public function test_parseAll_adds_normalized_date_field(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publication date :</span> October 1, 2024
+                    </li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        $this->assertArrayHasKey('normalized_date', $result);
+        $this->assertEquals('2024-10-01', $result['normalized_date']);
+    }
+
+    public function test_parseAll_adds_bsr_monthly_sales_estimate_books_field(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #5,000 in Books</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        $this->assertArrayHasKey('bsr_monthly_sales_estimate_books', $result);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertGreaterThan(0, $result['bsr_monthly_sales_estimate_books']);
+    }
+
+    public function test_parseAll_adds_kdp_fields_for_independently_published_book(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publisher :</span> Independently published (October 1, 2024)
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Dimensions :</span> 8.5 x 0.24 x 11 inches
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Print Length :</span> 100 pages
+                    </li>
+                </ul>
+            </div>
+            <span class="a-price" data-a-size="xl" data-a-color="price">
+                <span class="a-offscreen">\$7.99</span>
+            </span>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Verify it's independently published
+        $this->assertStringContainsString('Independently published', $result['publisher']);
+
+        // Check KDP fields are populated
+        $this->assertArrayHasKey('kdp_trim_size', $result);
+        $this->assertEquals('large', $result['kdp_trim_size']);
+
+        $this->assertArrayHasKey('kdp_royalty_estimate', $result);
+        $this->assertIsFloat($result['kdp_royalty_estimate']);
+        $this->assertGreaterThan(0, $result['kdp_royalty_estimate']);
+    }
+
+    public function test_parseAll_does_not_add_kdp_fields_for_non_independently_published_book(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publisher :</span> Penguin Random House (January 15, 2024)
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Dimensions :</span> 6 x 1.2 x 9 inches
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Print Length :</span> 400 pages
+                    </li>
+                    <li>Best Sellers Rank: #100 in Books</li>
+                </ul>
+            </div>
+            <span class="a-price" data-a-size="xl" data-a-color="price">
+                <span class="a-offscreen">\$19.99</span>
+            </span>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Check basic fields
+        $this->assertStringContainsString('Penguin Random House', $result['publisher']);
+        $this->assertEquals(19.99, $result['price']);
+        $this->assertEquals(400, $result['page_count']);
+        $this->assertEquals(100, $result['bsr_rank']);
+
+        // Check KDP fields are NOT populated
+        $this->assertArrayNotHasKey('kdp_trim_size', $result);
+        $this->assertArrayNotHasKey('kdp_royalty_estimate', $result);
+
+        // Check BSR monthly sales estimate IS populated (for all books)
+        $this->assertArrayHasKey('bsr_monthly_sales_estimate_books', $result);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertGreaterThan(0, $result['bsr_monthly_sales_estimate_books']);
+    }
+
+    public function test_parseAll_does_not_add_kdp_fields_for_non_book_product(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="prodDetails">
+                <table class="prodDetTable">
+                    <tr>
+                        <th class="prodDetSectionEntry">ASIN</th>
+                        <td>B0TESTTOY1</td>
+                    </tr>
+                    <tr>
+                        <th class="prodDetSectionEntry">Best Sellers Rank</th>
+                        <td>#50 in Toys & Games</td>
+                    </tr>
+                </table>
+            </div>
+            <span class="a-price" data-a-size="xl" data-a-color="price">
+                <span class="a-offscreen">\$12.99</span>
+            </span>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Check basic fields
+        $this->assertEquals('B0TESTTOY1', $result['asin']);
+        $this->assertArrayNotHasKey('publisher', $result); // Non-books don't have publisher
+        $this->assertEquals(12.99, $result['price']);
+        $this->assertEquals(50, $result['bsr_rank']);
+
+        // Check KDP fields are NOT populated
+        $this->assertArrayNotHasKey('kdp_trim_size', $result);
+        $this->assertArrayNotHasKey('kdp_royalty_estimate', $result);
+
+        // Check BSR monthly sales estimate IS populated (works for all products with BSR)
+        $this->assertArrayHasKey('bsr_monthly_sales_estimate_books', $result);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertGreaterThan(0, $result['bsr_monthly_sales_estimate_books']);
+    }
+
+    public function test_parseAll_kdp_trim_size_missing_when_no_dimensions(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publisher :</span> Independently published (October 1, 2024)
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Print Length :</span> 100 pages
+                    </li>
+                </ul>
+            </div>
+            <span class="a-price" data-a-size="xl" data-a-color="price">
+                <span class="a-offscreen">\$9.99</span>
+            </span>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Independently published but no dimensions
+        $this->assertStringContainsString('Independently published', $result['publisher']);
+        $this->assertArrayNotHasKey('dimensions', $result);
+
+        // No dimensions means no trim size, and no trim size means no royalty estimate
+        $this->assertArrayNotHasKey('kdp_trim_size', $result);
+        $this->assertArrayNotHasKey('kdp_royalty_estimate', $result);
+    }
+
+    public function test_parseAll_kdp_royalty_missing_when_no_price(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publisher :</span> Independently published (October 1, 2024)
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Dimensions :</span> 8.5 x 0.24 x 11 inches
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Print Length :</span> 100 pages
+                    </li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Has dimensions so trim size should be calculated
+        $this->assertStringContainsString('Independently published', $result['publisher']);
+        $this->assertArrayHasKey('kdp_trim_size', $result);
+        $this->assertEquals('large', $result['kdp_trim_size']);
+
+        // But no price means no royalty estimate
+        $this->assertArrayNotHasKey('price', $result);
+        $this->assertArrayNotHasKey('kdp_royalty_estimate', $result);
+    }
+
+    public function test_parseAll_kdp_royalty_missing_when_no_page_count(): void
+    {
+        $html = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>
+                        <span class="a-text-bold">Publisher :</span> Independently published (October 1, 2024)
+                    </li>
+                    <li>
+                        <span class="a-text-bold">Dimensions :</span> 8.5 x 0.24 x 11 inches
+                    </li>
+                </ul>
+            </div>
+            <span class="a-price" data-a-size="xl" data-a-color="price">
+                <span class="a-offscreen">\$9.99</span>
+            </span>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($html);
+
+        // Has dimensions so trim size should be calculated
+        $this->assertStringContainsString('Independently published', $result['publisher']);
+        $this->assertArrayHasKey('kdp_trim_size', $result);
+        $this->assertEquals('large', $result['kdp_trim_size']);
+
+        // But no page count means no royalty estimate
+        $this->assertArrayNotHasKey('page_count', $result);
+        $this->assertArrayNotHasKey('kdp_royalty_estimate', $result);
+    }
+
+    public function test_parseAll_bsr_monthly_sales_estimate_for_various_bsr_ranks(): void
+    {
+        // Test Tier 1: BSR 1-100 (high volume)
+        $htmlTier1 = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #10 in Books</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($htmlTier1);
+        $this->assertEquals(10, $result['bsr_rank']);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertGreaterThan(20000, $result['bsr_monthly_sales_estimate_books']); // Tier 1 high volume
+
+        // Test Tier 2: BSR 101-100,000 (mid-range)
+        $htmlTier2 = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #5,000 in Books</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($htmlTier2);
+        $this->assertEquals(5000, $result['bsr_rank']);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertGreaterThan(100, $result['bsr_monthly_sales_estimate_books']); // Tier 2 mid-range
+        $this->assertLessThan(2000, $result['bsr_monthly_sales_estimate_books']);
+
+        // Test Tier 3: BSR 100,001+ (long tail)
+        $htmlTier3 = <<<HTML
+        <html>
+        <body>
+            <div id="detailBulletsWrapper_feature_div">
+                <ul class="detail-bullet-list">
+                    <li>Best Sellers Rank: #500,000 in Books</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        HTML;
+
+        $result = $this->parser->parseAll($htmlTier3);
+        $this->assertEquals(500000, $result['bsr_rank']);
+        $this->assertIsInt($result['bsr_monthly_sales_estimate_books']);
+        $this->assertLessThan(50, $result['bsr_monthly_sales_estimate_books']); // Tier 3 long tail
+    }
+
     public function test_insert_product_with_valid_data(): void
     {
         $data = [
@@ -1286,133 +1675,84 @@ class AmazonProductPageParserTest extends TestCase
         ]);
     }
 
-    public function test_bsr_to_monthly_sales_books_with_null(): void
+    public function test_insert_product_includes_kdp_fields_for_books(): void
     {
-        $result = $this->parser->bsrToMonthlySalesBooks(null);
-        $this->assertNull($result);
-    }
-
-    public function test_bsr_to_monthly_sales_books_tier_1_high_volume(): void
-    {
-        // BSR 1-100: High-volume sellers
-        $result = $this->parser->bsrToMonthlySalesBooks(1);
-        $this->assertIsFloat($result);
-        $this->assertGreaterThan(0, $result);
-
-        // BSR 1 should give highest sales
-        $bsr1   = $this->parser->bsrToMonthlySalesBooks(1);
-        $bsr100 = $this->parser->bsrToMonthlySalesBooks(100);
-        $this->assertGreaterThan($bsr100, $bsr1);
-    }
-
-    public function test_bsr_to_monthly_sales_books_tier_2_mid_range(): void
-    {
-        // BSR 101-100,000: Mid-range sellers
-        $result = $this->parser->bsrToMonthlySalesBooks(1000);
-        $this->assertIsFloat($result);
-        $this->assertGreaterThan(0, $result);
-
-        // Lower BSR should give higher sales
-        $bsr101    = $this->parser->bsrToMonthlySalesBooks(101);
-        $bsr100000 = $this->parser->bsrToMonthlySalesBooks(100000);
-        $this->assertGreaterThan($bsr100000, $bsr101);
-    }
-
-    public function test_bsr_to_monthly_sales_books_tier_3_long_tail(): void
-    {
-        // BSR 100,001+: Long-tail sellers
-        $result = $this->parser->bsrToMonthlySalesBooks(500000);
-        $this->assertIsFloat($result);
-        $this->assertGreaterThan(0, $result);
-
-        // Lower BSR should give higher sales
-        $bsr100001  = $this->parser->bsrToMonthlySalesBooks(100001);
-        $bsr1000000 = $this->parser->bsrToMonthlySalesBooks(1000000);
-        $this->assertGreaterThan($bsr1000000, $bsr100001);
-    }
-
-    public function test_bsr_to_monthly_sales_books_boundary_values(): void
-    {
-        // Test boundary between tier 1 and tier 2
-        // Note: There may be a discontinuity at boundaries due to different formulas
-        $bsr100 = $this->parser->bsrToMonthlySalesBooks(100);
-        $bsr101 = $this->parser->bsrToMonthlySalesBooks(101);
-        // Both should be positive
-        $this->assertGreaterThan(0, $bsr100);
-        $this->assertGreaterThan(0, $bsr101);
-
-        // Test boundary between tier 2 and tier 3
-        $bsr100000 = $this->parser->bsrToMonthlySalesBooks(100000);
-        $bsr100001 = $this->parser->bsrToMonthlySalesBooks(100001);
-        // Both should be positive
-        $this->assertGreaterThan(0, $bsr100000);
-        $this->assertGreaterThan(0, $bsr100001);
-    }
-
-    public static function bsrToMonthlySalesBooksProvider(): array
-    {
-        return [
-            'BSR 1 (best seller)' => [
-                'bsr'      => 1,
-                'expected' => 84175.0,
-            ],
-            'BSR 10 (top 10)' => [
-                'bsr'      => 10,
-                'expected' => 29253.86,
-            ],
-            'BSR 100 (tier 1 boundary)' => [
-                'bsr'      => 100,
-                'expected' => 10166.77,
-            ],
-            'BSR 101 (tier 2 start)' => [
-                'bsr'      => 101,
-                'expected' => 11234.31,
-            ],
-            'BSR 1,000 (mid-range)' => [
-                'bsr'      => 1000,
-                'expected' => 1940.24,
-            ],
-            'BSR 10,000 (mid-range)' => [
-                'bsr'      => 10000,
-                'expected' => 332.55,
-            ],
-            'BSR 100,000 (tier 2 boundary)' => [
-                'bsr'      => 100000,
-                'expected' => 57.00,
-            ],
-            'BSR 100,001 (tier 3 start)' => [
-                'bsr'      => 100001,
-                'expected' => 48.15,
-            ],
-            'BSR 500,000 (long tail)' => [
-                'bsr'      => 500000,
-                'expected' => 9.91,
-            ],
-            'BSR 1,000,000 (deep long tail)' => [
-                'bsr'      => 1000000,
-                'expected' => 5.02,
-            ],
-            'BSR 5,000,000 (very deep long tail)' => [
-                'bsr'      => 5000000,
-                'expected' => 1.03,
-            ],
-            'BSR 10,000,000 (extremely deep long tail)' => [
-                'bsr'      => 10000000,
-                'expected' => 0.52,
-            ],
+        $data = [
+            'asin'                             => 'B0KDPBOOK1',
+            'title'                            => 'Test KDP Book',
+            'categories'                       => ['Books', 'Fiction'],
+            'kdp_trim_size'                    => 'large',
+            'kdp_royalty_estimate'             => 2.50,
+            'bsr_monthly_sales_estimate_books' => 500,
         ];
+
+        $result = $this->parser->insertProduct($data);
+
+        $this->assertEquals(1, $result['inserted']);
+
+        // Verify KDP fields are inserted
+        $this->assertDatabaseHas('amazon_products', [
+            'asin'                   => 'B0KDPBOOK1',
+            'kdp_trim_size'          => 'large',
+            'kdp_royalty_estimate'   => 2.50,
+            'monthly_sales_estimate' => 500,
+        ]);
     }
 
-    #[DataProvider('bsrToMonthlySalesBooksProvider')]
-    public function test_bsr_to_monthly_sales_books_with_data_provider(
-        int $bsr,
-        float $expected
-    ): void {
-        $result = $this->parser->bsrToMonthlySalesBooks($bsr);
+    public function test_insert_product_monthly_sales_estimate_only_for_books(): void
+    {
+        // Test with Books category
+        $booksData = [
+            'asin'                             => 'B0BOOK1234',
+            'title'                            => 'Test Book',
+            'categories'                       => ['Books', 'Fiction'],
+            'bsr_monthly_sales_estimate_books' => 1000,
+        ];
 
-        $this->assertIsFloat($result);
-        // Use delta of 0.01 for floating-point comparison
-        $this->assertEqualsWithDelta($expected, $result, 0.01, "BSR {$bsr} should produce approximately {$expected} monthly sales");
+        $result = $this->parser->insertProduct($booksData);
+        $this->assertEquals(1, $result['inserted']);
+
+        $this->assertDatabaseHas('amazon_products', [
+            'asin'                   => 'B0BOOK1234',
+            'monthly_sales_estimate' => 1000,
+        ]);
+
+        // Test with non-Books category
+        $toyData = [
+            'asin'                             => 'B0TOY12345',
+            'title'                            => 'Test Toy',
+            'categories'                       => ['Toys & Games', 'Action Figures'],
+            'bsr_monthly_sales_estimate_books' => 2000,
+        ];
+
+        $result = $this->parser->insertProduct($toyData);
+        $this->assertEquals(1, $result['inserted']);
+
+        $this->assertDatabaseHas('amazon_products', [
+            'asin'                   => 'B0TOY12345',
+            'monthly_sales_estimate' => null, // Should be NULL for non-books
+        ]);
+    }
+
+    public function test_insert_product_kdp_fields_can_be_null(): void
+    {
+        $data = [
+            'asin'       => 'B0NOKDP123',
+            'title'      => 'Test Product Without KDP',
+            'categories' => ['Books', 'Fiction'],
+        ];
+
+        $result = $this->parser->insertProduct($data);
+
+        $this->assertEquals(1, $result['inserted']);
+
+        // Verify KDP fields are NULL when not provided
+        $this->assertDatabaseHas('amazon_products', [
+            'asin'                   => 'B0NOKDP123',
+            'kdp_trim_size'          => null,
+            'kdp_royalty_estimate'   => null,
+            'monthly_sales_estimate' => null,
+        ]);
     }
 
     public function test_compute_items_stats_with_empty_array(): void
@@ -1690,18 +2030,20 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEmpty($result['json___products__is_available']);
         $this->assertEmpty($result['json___products__is_amazon_choice']);
         $this->assertEmpty($result['json___products__is_independently_published']);
+        $this->assertEmpty($result['json___products__kdp_royalty_estimate']);
+        $this->assertEmpty($result['json___products__monthly_sales_estimate']);
         $this->assertNull($result['avg___products__price']);
         $this->assertNull($result['avg___products__customer_rating']);
         $this->assertNull($result['avg___products__customer_reviews_count']);
         $this->assertNull($result['avg___products__bsr_rank']);
         $this->assertNull($result['avg___products__normalized_date']);
         $this->assertNull($result['avg___products__page_count']);
+        $this->assertNull($result['avg___products__kdp_royalty_estimate']);
+        $this->assertNull($result['avg___products__monthly_sales_estimate']);
         $this->assertEquals(0, $result['cnt___products__is_available']);
         $this->assertEquals(0, $result['cnt___products__is_amazon_choice']);
         $this->assertEquals(0, $result['cnt___products__is_independently_published']);
         // BSR-related fields
-        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
-        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
         $this->assertNull($result['stdev___products__bsr_rank']);
     }
 
@@ -1819,37 +2161,7 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEqualsWithDelta(100.0, $result['stdev___products__bsr_rank'], 0.01);
     }
 
-    public function test_compute_products_stats_converts_bsr_to_monthly_sales(): void
-    {
-        $products = [
-            ['bsr_rank' => 1],
-            ['bsr_rank' => 100],
-            ['bsr_rank' => 1000],
-        ];
-
-        $result = $this->parser->computeProductsStats($products);
-
-        // Should have monthly sales estimates for all BSR ranks
-        $this->assertCount(3, $result['json___products__bsr_rank___monthly_sales_books']);
-
-        // BSR 1 should give highest sales
-        $this->assertGreaterThan(
-            $result['json___products__bsr_rank___monthly_sales_books'][1],
-            $result['json___products__bsr_rank___monthly_sales_books'][0]
-        );
-
-        // BSR 100 should give higher sales than BSR 1000
-        $this->assertGreaterThan(
-            $result['json___products__bsr_rank___monthly_sales_books'][2],
-            $result['json___products__bsr_rank___monthly_sales_books'][1]
-        );
-
-        // Average should be computed
-        $this->assertIsFloat($result['avg___products__bsr_rank___monthly_sales_books']);
-        $this->assertGreaterThan(0, $result['avg___products__bsr_rank___monthly_sales_books']);
-    }
-
-    public function test_compute_products_stats_handles_empty_bsr_for_monthly_sales(): void
+    public function test_compute_products_stats_handles_empty_bsr_for_stdev(): void
     {
         $products = [
             ['price' => 10.0], // No bsr_rank
@@ -1857,9 +2169,7 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeProductsStats($products);
 
-        // Should have empty monthly sales array
-        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
-        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
+        // Should have null stdev when no BSR ranks
         $this->assertNull($result['stdev___products__bsr_rank']);
     }
 
@@ -2027,6 +2337,83 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEquals($expected['cnt___products__is_independently_published'], $result['cnt___products__is_independently_published']);
     }
 
+    public function test_compute_products_stats_includes_kdp_royalty_estimate(): void
+    {
+        $products = [
+            ['kdp_royalty_estimate' => 2.50],
+            ['kdp_royalty_estimate' => 3.75],
+            ['kdp_royalty_estimate' => 1.25],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Check JSON array
+        $this->assertCount(3, $result['json___products__kdp_royalty_estimate']);
+        $this->assertEquals([2.50, 3.75, 1.25], $result['json___products__kdp_royalty_estimate']);
+
+        // Check average
+        $this->assertEqualsWithDelta(2.50, $result['avg___products__kdp_royalty_estimate'], 0.01);
+    }
+
+    public function test_compute_products_stats_includes_monthly_sales_estimate(): void
+    {
+        $products = [
+            ['monthly_sales_estimate' => 500],
+            ['monthly_sales_estimate' => 1000],
+            ['monthly_sales_estimate' => 1500],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // Check JSON array
+        $this->assertCount(3, $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals([500, 1000, 1500], $result['json___products__monthly_sales_estimate']);
+
+        // Check average
+        $this->assertEquals(1000, $result['avg___products__monthly_sales_estimate']);
+    }
+
+    public function test_compute_products_stats_excludes_null_kdp_fields(): void
+    {
+        $products = [
+            ['kdp_royalty_estimate' => 2.50, 'monthly_sales_estimate' => 500],
+            ['kdp_royalty_estimate' => null, 'monthly_sales_estimate' => null],
+            ['kdp_royalty_estimate' => 3.75, 'monthly_sales_estimate' => 1000],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // KDP royalty estimate should only have non-null values
+        $this->assertCount(2, $result['json___products__kdp_royalty_estimate']);
+        $this->assertEquals([2.50, 3.75], $result['json___products__kdp_royalty_estimate']);
+        $this->assertEqualsWithDelta(3.125, $result['avg___products__kdp_royalty_estimate'], 0.01);
+
+        // Monthly sales estimate should only have non-null values
+        $this->assertCount(2, $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals([500, 1000], $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals(750, $result['avg___products__monthly_sales_estimate']);
+    }
+
+    public function test_compute_products_stats_kdp_fields_with_all_nulls(): void
+    {
+        $products = [
+            ['price' => 10.0, 'kdp_royalty_estimate' => null, 'monthly_sales_estimate' => null],
+            ['price' => 20.0, 'kdp_royalty_estimate' => null, 'monthly_sales_estimate' => null],
+        ];
+
+        $result = $this->parser->computeProductsStats($products);
+
+        // KDP fields should be empty arrays with null averages
+        $this->assertEmpty($result['json___products__kdp_royalty_estimate']);
+        $this->assertNull($result['avg___products__kdp_royalty_estimate']);
+        $this->assertEmpty($result['json___products__monthly_sales_estimate']);
+        $this->assertNull($result['avg___products__monthly_sales_estimate']);
+
+        // Other fields should still work
+        $this->assertCount(2, $result['json___products__price']);
+        $this->assertEquals(15.0, $result['avg___products__price']);
+    }
+
     public function test_compute_amazon_keywords_stats_row_with_minimal_data(): void
     {
         $listingsRow = [
@@ -2065,8 +2452,6 @@ class AmazonProductPageParserTest extends TestCase
 
         // Check that BSR-related fields are empty/null
         $this->assertNull($result['stdev___products__bsr_rank']);
-        $this->assertEmpty($result['json___products__bsr_rank___monthly_sales_books']);
-        $this->assertNull($result['avg___products__bsr_rank___monthly_sales_books']);
 
         // Check score fields are null
         $this->assertNull($result['score_1']);
@@ -2129,11 +2514,8 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEquals(4.5, $result['avg___products__customer_rating']);
         $this->assertEquals(2, $result['cnt___products__is_available']);
 
-        // Check BSR-related fields are integrated
-        $this->assertCount(2, $result['json___products__bsr_rank___monthly_sales_books']);
-        $this->assertIsFloat($result['avg___products__bsr_rank___monthly_sales_books']);
-        $this->assertGreaterThan(0, $result['avg___products__bsr_rank___monthly_sales_books']);
-        $this->assertIsFloat($result['stdev___products__bsr_rank']); // Computed for n=2
+        // Check BSR stdev is computed for n=2
+        $this->assertIsFloat($result['stdev___products__bsr_rank']);
         $this->assertGreaterThan(0, $result['stdev___products__bsr_rank']);
     }
 
