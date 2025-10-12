@@ -1884,7 +1884,7 @@ class FiverrJsonImporter
      * - score_1 = (ordersInQueue / deliveryTime) * lowPrice
      *   - Null if any input is null
      *   - Null if deliveryTime <= 0 (avoid divide-by-zero)
-     * - score_2 = rating * ln(ratingsCount) * (sellerLevelAdjusted^2)
+     * - score_2 = rating * log(ratingsCount) * (sellerLevelAdjusted^2)
      *   - Null if any input is null
      *   - Null if ratingsCount <= 0 (invalid logarithm)
      * - score_3 = score_1 / score_2

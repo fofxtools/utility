@@ -24,6 +24,7 @@ return new class () extends Migration {
             $table->integer('items_count')->nullable()->index();
 
             // From dataforseo_merchant_amazon_products_items - JSON arrays
+            $table->json('json___data_asin')->nullable();
             $table->json('json___bought_past_month')->nullable();
             $table->json('json___price_from')->nullable();
             $table->json('json___price_to')->nullable();
@@ -46,6 +47,7 @@ return new class () extends Migration {
             $table->integer('cnt___is_best_seller')->nullable()->index();
 
             // From amazon_products (joined by data_asin) - JSON arrays
+            $table->json('json___products__asin')->nullable();
             $table->json('json___products__price')->nullable();
             $table->json('json___products__customer_rating')->nullable();
             $table->json('json___products__customer_reviews_count')->nullable();
@@ -61,20 +63,23 @@ return new class () extends Migration {
             // From amazon_products - Averages
             $table->float('avg___products__price')->nullable()->index();
             $table->float('avg___products__customer_rating')->nullable()->index();
-            $table->float('avg___products__customer_reviews_count')->nullable()->index();
+            $table->float('avg___products__customer_reviews_count')->nullable()->index('idx_aks_avg___products__customer_reviews_count');
             $table->float('avg___products__bsr_rank')->nullable()->index();
             $table->date('avg___products__normalized_date')->nullable()->index();
             $table->float('avg___products__page_count')->nullable()->index();
             $table->float('avg___products__kdp_royalty_estimate')->nullable()->index();
-            $table->float('avg___products__monthly_sales_estimate')->nullable()->index();
+            $table->float('avg___products__monthly_sales_estimate')->nullable()->index('idx_aks_avg___products__monthly_sales_estimate');
 
             // From amazon_products - Counts
             $table->integer('cnt___products__is_available')->nullable()->index();
             $table->integer('cnt___products__is_amazon_choice')->nullable()->index();
-            $table->integer('cnt___products__is_independently_published')->nullable()->index();
+            $table->integer('cnt___products__is_independently_published')->nullable()->index('idx_aks_cnt___products__is_independently_published');
 
             // Standard deviation in BSR rank
             $table->float('stdev___products__bsr_rank')->nullable()->index();
+
+            // Coefficient of variation for monthly sales estimate
+            $table->float('cv_monthly_sales_estimate')->nullable()->index();
 
             // Computed scores
             $table->float('score_1')->nullable()->index();

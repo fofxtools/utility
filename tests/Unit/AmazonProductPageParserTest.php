@@ -8,6 +8,7 @@ use FOfX\Utility\Tests\TestCase;
 use FOfX\Utility\AmazonProductPageParser;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\DomCrawler\Crawler;
+use Mockery;
 
 class AmazonProductPageParserTest extends TestCase
 {
@@ -1827,15 +1828,15 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeItemsStats($items);
 
-        // price_from should only have non-null values
-        $this->assertCount(2, $result['json___price_from']);
-        $this->assertEquals([10.0, 20.0], $result['json___price_from']);
-        $this->assertEquals(15.0, $result['avg___price_from']);
+        // price_from should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___price_from']);
+        $this->assertEquals([10.0, 20.0, null], $result['json___price_from']);
+        $this->assertEquals(15.0, $result['avg___price_from']); // Average excludes nulls
 
-        // price_to should only have non-null values
-        $this->assertCount(2, $result['json___price_to']);
-        $this->assertEquals([50.0, 60.0], $result['json___price_to']);
-        $this->assertEquals(55.0, $result['avg___price_to']);
+        // price_to should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___price_to']);
+        $this->assertEquals([null, 50.0, 60.0], $result['json___price_to']);
+        $this->assertEquals(55.0, $result['avg___price_to']); // Average excludes nulls
     }
 
     public function test_compute_items_stats_counts_boolean_true_values(): void
@@ -1951,12 +1952,12 @@ class AmazonProductPageParserTest extends TestCase
                     ],
                 ],
                 'expected' => [
-                    'json___bought_past_month'  => [],
+                    'json___bought_past_month'  => [null, null],
                     'json___price_from'         => [10.0, 20.0],
-                    'json___price_to'           => [],
-                    'json___rating_value'       => [],
-                    'json___rating_votes_count' => [],
-                    'json___rating_rating_max'  => [],
+                    'json___price_to'           => [null, null],
+                    'json___rating_value'       => [null, null],
+                    'json___rating_votes_count' => [null, null],
+                    'json___rating_rating_max'  => [null, null],
                     'avg___bought_past_month'   => null,
                     'avg___price_from'          => 15.0,
                     'avg___price_to'            => null,
@@ -2074,15 +2075,15 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeProductsStats($products);
 
-        // price should only have non-null values
-        $this->assertCount(2, $result['json___products__price']);
-        $this->assertEquals([10.0, 20.0], $result['json___products__price']);
-        $this->assertEquals(15.0, $result['avg___products__price']);
+        // price should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___products__price']);
+        $this->assertEquals([10.0, 20.0, null], $result['json___products__price']);
+        $this->assertEquals(15.0, $result['avg___products__price']); // Average excludes nulls
 
-        // customer_rating should only have non-null values
-        $this->assertCount(2, $result['json___products__customer_rating']);
-        $this->assertEquals([4.5, 5.0], $result['json___products__customer_rating']);
-        $this->assertEquals(4.75, $result['avg___products__customer_rating']);
+        // customer_rating should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___products__customer_rating']);
+        $this->assertEquals([null, 4.5, 5.0], $result['json___products__customer_rating']);
+        $this->assertEquals(4.75, $result['avg___products__customer_rating']); // Average excludes nulls
     }
 
     public function test_compute_products_stats_counts_boolean_true_values(): void
@@ -2112,9 +2113,9 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeProductsStats($products);
 
-        // Should have 4 items (excluding null)
-        $this->assertCount(4, $result['json___products__is_independently_published']);
-        $this->assertEquals([true, false, true, false], $result['json___products__is_independently_published']);
+        // Should have 5 items (including null to maintain alignment)
+        $this->assertCount(5, $result['json___products__is_independently_published']);
+        $this->assertEquals([true, false, true, false, null], $result['json___products__is_independently_published']);
         $this->assertEquals(2, $result['cnt___products__is_independently_published']);
     }
 
@@ -2291,11 +2292,11 @@ class AmazonProductPageParserTest extends TestCase
                 ],
                 'expected' => [
                     'json___products__price'                     => [10.0, 20.0],
-                    'json___products__customer_rating'           => [],
-                    'json___products__customer_reviews_count'    => [],
-                    'json___products__bsr_rank'                  => [],
-                    'json___products__normalized_date'           => [],
-                    'json___products__page_count'                => [],
+                    'json___products__customer_rating'           => [null, null],
+                    'json___products__customer_reviews_count'    => [null, null],
+                    'json___products__bsr_rank'                  => [null, null],
+                    'json___products__normalized_date'           => [null, null],
+                    'json___products__page_count'                => [null, null],
                     'avg___products__price'                      => 15.0,
                     'avg___products__customer_rating'            => null,
                     'avg___products__customer_reviews_count'     => null,
@@ -2383,15 +2384,15 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeProductsStats($products);
 
-        // KDP royalty estimate should only have non-null values
-        $this->assertCount(2, $result['json___products__kdp_royalty_estimate']);
-        $this->assertEquals([2.50, 3.75], $result['json___products__kdp_royalty_estimate']);
-        $this->assertEqualsWithDelta(3.125, $result['avg___products__kdp_royalty_estimate'], 0.01);
+        // KDP royalty estimate should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___products__kdp_royalty_estimate']);
+        $this->assertEquals([2.50, null, 3.75], $result['json___products__kdp_royalty_estimate']);
+        $this->assertEqualsWithDelta(3.125, $result['avg___products__kdp_royalty_estimate'], 0.01); // Average excludes nulls
 
-        // Monthly sales estimate should only have non-null values
-        $this->assertCount(2, $result['json___products__monthly_sales_estimate']);
-        $this->assertEquals([500, 1000], $result['json___products__monthly_sales_estimate']);
-        $this->assertEquals(750, $result['avg___products__monthly_sales_estimate']);
+        // Monthly sales estimate should include nulls to maintain alignment
+        $this->assertCount(3, $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals([500, null, 1000], $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals(750, $result['avg___products__monthly_sales_estimate']); // Average excludes nulls
     }
 
     public function test_compute_products_stats_kdp_fields_with_all_nulls(): void
@@ -2403,15 +2404,506 @@ class AmazonProductPageParserTest extends TestCase
 
         $result = $this->parser->computeProductsStats($products);
 
-        // KDP fields should be empty arrays with null averages
-        $this->assertEmpty($result['json___products__kdp_royalty_estimate']);
+        // KDP fields should have nulls (to maintain alignment) with null averages
+        $this->assertCount(2, $result['json___products__kdp_royalty_estimate']);
+        $this->assertEquals([null, null], $result['json___products__kdp_royalty_estimate']);
         $this->assertNull($result['avg___products__kdp_royalty_estimate']);
-        $this->assertEmpty($result['json___products__monthly_sales_estimate']);
+
+        $this->assertCount(2, $result['json___products__monthly_sales_estimate']);
+        $this->assertEquals([null, null], $result['json___products__monthly_sales_estimate']);
         $this->assertNull($result['avg___products__monthly_sales_estimate']);
 
         // Other fields should still work
         $this->assertCount(2, $result['json___products__price']);
+        $this->assertEquals([10.0, 20.0], $result['json___products__price']);
         $this->assertEquals(15.0, $result['avg___products__price']);
+    }
+
+    public function test_compute_scores_for_stats_row_returns_all_null_with_no_data(): void
+    {
+        $listingsRow = ['se_results_count' => 1000];
+        $items       = [];
+        $products    = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        $this->assertNull($result['score_1']);
+        $this->assertNull($result['score_2']);
+        $this->assertNull($result['score_3']);
+        $this->assertNull($result['score_4']);
+        $this->assertNull($result['score_5']);
+        $this->assertNull($result['score_6']);
+        $this->assertNull($result['score_7']);
+        $this->assertNull($result['score_8']);
+        $this->assertNull($result['score_9']);
+        $this->assertNull($result['score_10']);
+        $this->assertNull($result['cv_monthly_sales_estimate']);
+    }
+
+    public function test_compute_scores_for_stats_row_filters_items_by_rank_absolute(): void
+    {
+        $this->parser->setStatsItemsLimit(3);
+
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+            ['rank_absolute' => 3, 'bought_past_month' => 3000, 'price_from' => 30.0, 'rating_value' => 5.0, 'rating_votes_count' => 300],
+            ['rank_absolute' => 4, 'bought_past_month' => 4000, 'price_from' => 40.0, 'rating_value' => 3.5, 'rating_votes_count' => 400], // Should be excluded
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should only use first 3 items
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['cv_monthly_sales_estimate']);
+    }
+
+    public function test_compute_scores_for_stats_row_uses_bought_past_month_from_items(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200, 'data_asin' => 'B002'],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_1 = log(avg(monthly_sales) * avg(price))
+        // avg(monthly_sales) = (1000 + 2000) / 2 = 1500
+        // avg(price) = (10 + 20) / 2 = 15
+        // score_1 = log(1500 * 15) = log(22500)
+        $expectedScore1 = log(1500 * 15);
+        $this->assertEquals($expectedScore1, $result['score_1']);
+    }
+
+    public function test_compute_scores_for_stats_row_falls_back_to_products_for_books(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+        ];
+        $products = [
+            ['asin' => 'B001', 'categories' => json_encode(['Books', 'Fiction']), 'monthly_sales_estimate' => 500],
+        ];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should use monthly_sales_estimate from products (500)
+        // score_1 = log(500 * 10) = log(5000)
+        $expectedScore1 = log(500 * 10);
+        $this->assertEquals($expectedScore1, $result['score_1']);
+    }
+
+    public function test_compute_scores_for_stats_row_ignores_non_books_products(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+        ];
+        $products = [
+            ['asin' => 'B001', 'categories' => json_encode(['Electronics', 'Phones']), 'monthly_sales_estimate' => 500],
+        ];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should not use products data because category is not Books
+        $this->assertNull($result['score_1']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_cv_monthly_sales_estimate(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+            ['rank_absolute' => 3, 'bought_past_month' => 3000, 'price_from' => 30.0, 'rating_value' => 5.0, 'rating_votes_count' => 300],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // CV = stdev / mean
+        // mean = (1000 + 2000 + 3000) / 3 = 2000
+        // Should have a CV value
+        $this->assertNotNull($result['cv_monthly_sales_estimate']);
+        $this->assertGreaterThan(0, $result['cv_monthly_sales_estimate']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_score_2(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_2 = avg(rating) * log(avg(reviews_count))
+        // avg(rating) = (4.5 + 4.0) / 2 = 4.25
+        // avg(reviews_count) = (100 + 200) / 2 = 150
+        // score_2 = 4.25 * log(150)
+        $expectedScore2 = 4.25 * log(150);
+        $this->assertEquals($expectedScore2, $result['score_2']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_score_3(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_3 = score_1 / score_2
+        $this->assertNotNull($result['score_3']);
+        $this->assertEquals($result['score_1'] / $result['score_2'], $result['score_3']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_score_4_and_5(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_4 = score_1 / se_results_count
+        $this->assertNotNull($result['score_4']);
+        $this->assertEquals($result['score_1'] / 100, $result['score_4']);
+
+        // score_5 = score_1 / sqrt(se_results_count)
+        $this->assertNotNull($result['score_5']);
+        $this->assertEquals($result['score_1'] / sqrt(100), $result['score_5']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_score_6_7_8(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_6 = score_3 / cv_monthly_sales_estimate
+        $this->assertNotNull($result['score_6']);
+        $this->assertEquals($result['score_3'] / $result['cv_monthly_sales_estimate'], $result['score_6']);
+
+        // score_7 = score_4 / cv_monthly_sales_estimate
+        $this->assertNotNull($result['score_7']);
+        $this->assertEquals($result['score_4'] / $result['cv_monthly_sales_estimate'], $result['score_7']);
+
+        // score_8 = score_5 / cv_monthly_sales_estimate
+        $this->assertNotNull($result['score_8']);
+        $this->assertEquals($result['score_5'] / $result['cv_monthly_sales_estimate'], $result['score_8']);
+    }
+
+    public function test_compute_scores_for_stats_row_computes_score_9(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_9 = score_3 / se_results_count / cv_monthly_sales_estimate
+        $this->assertNotNull($result['score_9']);
+        $expectedScore9 = $result['score_3'] / 100 / $result['cv_monthly_sales_estimate'];
+        $this->assertEquals($expectedScore9, $result['score_9']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_null_price(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => null, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_1 should be null because price is null
+        $this->assertNull($result['score_1']);
+        // Dependent scores should also be null
+        $this->assertNull($result['score_3']);
+        $this->assertNull($result['score_4']);
+        $this->assertNull($result['score_5']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_null_rating(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => null, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_2 should be null because rating is null
+        $this->assertNull($result['score_2']);
+        // score_3 should be null because it depends on score_2
+        $this->assertNull($result['score_3']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_zero_reviews_count(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 0],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_2 should be null because log(0) is undefined
+        $this->assertNull($result['score_2']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_objects_and_arrays(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            (object)['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+        ];
+        $products = [
+            (object)['asin' => 'B001', 'categories' => json_encode(['Books']), 'monthly_sales_estimate' => 500],
+        ];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should handle mixed objects and arrays
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+    }
+
+    public function test_compute_scores_for_stats_row_excludes_null_values_from_averages(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => null, 'rating_value' => null, 'rating_votes_count' => null],
+            ['rank_absolute' => 3, 'bought_past_month' => 3000, 'price_from' => 30.0, 'rating_value' => 5.0, 'rating_votes_count' => 300],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should only use non-null values for averages
+        // avg(price) = (10 + 30) / 2 = 20
+        // avg(rating) = (4.5 + 5.0) / 2 = 4.75
+        // avg(reviews) = (100 + 300) / 2 = 200
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+    }
+
+    public function test_compute_scores_for_stats_row_with_single_item_no_cv(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // CV should be null with only 1 item (need at least 2 for stdev)
+        $this->assertNull($result['cv_monthly_sales_estimate']);
+        // Scores that depend on CV should be null
+        $this->assertNull($result['score_6']);
+        $this->assertNull($result['score_7']);
+        $this->assertNull($result['score_8']);
+        $this->assertNull($result['score_9']);
+    }
+
+    public function test_compute_scores_for_stats_row_books_category_case_insensitive(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+        ];
+        $products = [
+            ['asin' => 'B001', 'categories' => json_encode(['BOOKS', 'Fiction']), 'monthly_sales_estimate' => 500],
+        ];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should match "BOOKS" case-insensitively
+        $expectedScore1 = log(500 * 10);
+        $this->assertEquals($expectedScore1, $result['score_1']);
+    }
+
+    public function test_compute_scores_for_stats_row_mixes_bought_past_month_and_books_fallback(): void
+    {
+        $listingsRow = ['se_results_count' => 100];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+            ['rank_absolute' => 2, 'bought_past_month' => null, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200, 'data_asin' => 'B002'],
+        ];
+        $products = [
+            ['asin' => 'B002', 'categories' => json_encode(['Books']), 'monthly_sales_estimate' => 2000],
+        ];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // Should use: 1000 from item 1 (bought_past_month), 2000 from product for item 2 (Books fallback)
+        // avg(monthly_sales) = (1000 + 2000) / 2 = 1500
+        // avg(price) = (10 + 20) / 2 = 15
+        // score_1 = log(1500 * 15) = log(22500)
+        $expectedScore1 = log(1500 * 15);
+        $this->assertEqualsWithDelta($expectedScore1, $result['score_1'], 0.0001);
+
+        // Both items should contribute to score_2
+        // avg(rating) = (4.5 + 4.0) / 2 = 4.25
+        // avg(reviews) = (100 + 200) / 2 = 150
+        $expectedScore2 = 4.25 * log(150);
+        $this->assertEqualsWithDelta($expectedScore2, $result['score_2'], 0.0001);
+
+        // CV should be computed from both values
+        $this->assertNotNull($result['cv_monthly_sales_estimate']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_zero_se_results_count(): void
+    {
+        $listingsRow = ['se_results_count' => 0];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_1 and score_2 should still compute (don't depend on se_results_count)
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+        $this->assertNotNull($result['score_3']);
+
+        // But scores using se_results_count should be null (division by zero protection)
+        $this->assertNull($result['score_4']);
+        $this->assertNull($result['score_5']);
+        $this->assertNull($result['score_9']);
+
+        // Scores 6, 7, 8 depend on CV which is null for single item
+        $this->assertNull($result['cv_monthly_sales_estimate']);
+        $this->assertNull($result['score_6']);
+        $this->assertNull($result['score_7']);
+        $this->assertNull($result['score_8']);
+    }
+
+    public function test_compute_scores_for_stats_row_handles_null_se_results_count(): void
+    {
+        $listingsRow = ['se_results_count' => null];
+        $items       = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+        ];
+        $products = [];
+
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        // score_1, score_2, score_3 should still compute
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+        $this->assertNotNull($result['score_3']);
+
+        // But scores using se_results_count should be null
+        $this->assertNull($result['score_4']);
+        $this->assertNull($result['score_5']);
+        $this->assertNull($result['score_9']);
+
+        // CV and dependent scores should compute (have 2 items)
+        $this->assertNotNull($result['cv_monthly_sales_estimate']);
+        $this->assertNotNull($result['score_6']);
+        $this->assertNull($result['score_7']); // Depends on score_4 which is null
+        $this->assertNull($result['score_8']); // Depends on score_5 which is null
+    }
+
+    public static function computeScoresForStatsRowProvider(): array
+    {
+        return [
+            'basic_scores_with_bought_past_month' => [
+                'listingsRow' => ['se_results_count' => 100],
+                'items'       => [
+                    ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100],
+                    ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200],
+                ],
+                'products'       => [],
+                'expectedScores' => [
+                    'score_1'                   => log(1500 * 15), // avg(1000,2000) * avg(10,20)
+                    'score_2'                   => 4.25 * log(150), // avg(4.5,4.0) * log(avg(100,200))
+                    'cv_monthly_sales_estimate' => 'not_null',
+                ],
+            ],
+            'books_fallback' => [
+                'listingsRow' => ['se_results_count' => 50],
+                'items'       => [
+                    ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 15.0, 'rating_value' => 4.8, 'rating_votes_count' => 500, 'data_asin' => 'B001'],
+                ],
+                'products' => [
+                    ['asin' => 'B001', 'categories' => json_encode(['Books']), 'monthly_sales_estimate' => 300],
+                ],
+                'expectedScores' => [
+                    'score_1'                   => log(300 * 15), // 300 from products, 15 from items
+                    'score_2'                   => 4.8 * log(500),
+                    'cv_monthly_sales_estimate' => null, // Only 1 item
+                ],
+            ],
+            'no_monthly_sales_data' => [
+                'listingsRow' => ['se_results_count' => 100],
+                'items'       => [
+                    ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+                ],
+                'products' => [
+                    ['asin' => 'B001', 'categories' => json_encode(['Electronics']), 'monthly_sales_estimate' => 500],
+                ],
+                'expectedScores' => [
+                    'score_1'                   => null,
+                    'score_2'                   => null,
+                    'score_3'                   => null,
+                    'cv_monthly_sales_estimate' => null,
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('computeScoresForStatsRowProvider')]
+    public function test_compute_scores_for_stats_row_with_data_provider(
+        array $listingsRow,
+        array $items,
+        array $products,
+        array $expectedScores
+    ): void {
+        $result = $this->parser->computeScoresForStatsRow($listingsRow, $items, $products);
+
+        foreach ($expectedScores as $key => $expectedValue) {
+            if ($expectedValue === null) {
+                $this->assertNull($result[$key], "Expected {$key} to be null");
+            } elseif ($expectedValue === 'not_null') {
+                $this->assertNotNull($result[$key], "Expected {$key} to not be null");
+            } else {
+                $this->assertNotNull($result[$key], "Expected {$key} to not be null");
+                if (is_float($expectedValue)) {
+                    $this->assertEqualsWithDelta($expectedValue, $result[$key], 0.0001, "Mismatch for {$key}");
+                } else {
+                    $this->assertEquals($expectedValue, $result[$key], "Mismatch for {$key}");
+                }
+            }
+        }
     }
 
     public function test_compute_amazon_keywords_stats_row_with_minimal_data(): void
@@ -2561,10 +3053,91 @@ class AmazonProductPageParserTest extends TestCase
         $this->assertEquals(4.65, $result['avg___products__customer_rating']);
         $this->assertEquals(1, $result['cnt___products__is_independently_published']);
 
-        // Check score fields
+        // Check score fields - should be null because items don't have bought_past_month or matching products
         $this->assertNull($result['score_1']);
         $this->assertNull($result['score_5']);
         $this->assertNull($result['score_10']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_computes_scores(): void
+    {
+        $listingsRow = [
+            'id'               => 222,
+            'keyword'          => 'score test',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 100,
+            'items_count'      => 10,
+        ];
+
+        $items = [
+            ['rank_absolute' => 1, 'bought_past_month' => 1000, 'price_from' => 10.0, 'rating_value' => 4.5, 'rating_votes_count' => 100, 'data_asin' => 'B001'],
+            ['rank_absolute' => 2, 'bought_past_month' => 2000, 'price_from' => 20.0, 'rating_value' => 4.0, 'rating_votes_count' => 200, 'data_asin' => 'B002'],
+        ];
+
+        $products = [];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check that scores are computed
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+        $this->assertNotNull($result['score_3']);
+        $this->assertNotNull($result['score_4']);
+        $this->assertNotNull($result['score_5']);
+        $this->assertNotNull($result['score_6']);
+        $this->assertNotNull($result['score_7']);
+        $this->assertNotNull($result['score_8']);
+        $this->assertNotNull($result['score_9']);
+        $this->assertNotNull($result['cv_monthly_sales_estimate']);
+
+        // Verify score_1 calculation
+        // avg(monthly_sales) = (1000 + 2000) / 2 = 1500
+        // avg(price) = (10 + 20) / 2 = 15
+        // score_1 = log(1500 * 15) = log(22500)
+        $expectedScore1 = log(1500 * 15);
+        $this->assertEqualsWithDelta($expectedScore1, $result['score_1'], 0.0001);
+
+        // Verify items and products stats are also present
+        $this->assertEquals([10.0, 20.0], $result['json___price_from']);
+        $this->assertEquals(15.0, $result['avg___price_from']);
+    }
+
+    public function test_compute_amazon_keywords_stats_row_computes_scores_with_books_fallback(): void
+    {
+        $listingsRow = [
+            'id'               => 333,
+            'keyword'          => 'books score test',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 50,
+            'items_count'      => 5,
+        ];
+
+        $items = [
+            ['rank_absolute' => 1, 'bought_past_month' => null, 'price_from' => 15.0, 'rating_value' => 4.8, 'rating_votes_count' => 500, 'data_asin' => 'B001'],
+        ];
+
+        $products = [
+            ['asin' => 'B001', 'categories' => json_encode(['Books', 'Fiction']), 'monthly_sales_estimate' => 300, 'price' => 15.0],
+        ];
+
+        $result = $this->parser->computeAmazonKeywordsStatsRow($listingsRow, $items, $products);
+
+        // Check that scores are computed using Books fallback
+        $this->assertNotNull($result['score_1']);
+        $this->assertNotNull($result['score_2']);
+
+        // Verify score_1 uses monthly_sales_estimate from products
+        // score_1 = log(300 * 15) = log(4500)
+        $expectedScore1 = log(300 * 15);
+        $this->assertEqualsWithDelta($expectedScore1, $result['score_1'], 0.0001);
+
+        // CV should be null with only 1 item
+        $this->assertNull($result['cv_monthly_sales_estimate']);
+        $this->assertNull($result['score_6']);
     }
 
     public static function computeAmazonKeywordsStatsRowProvider(): array
@@ -2640,6 +3213,8 @@ class AmazonProductPageParserTest extends TestCase
                     'cnt___products__is_available'                    => 2,
                     'cnt___products__is_amazon_choice'                => 1,
                     'cnt___products__is_independently_published'      => 1,
+                    'score_1'                                         => 'not_null', // Should be computed
+                    'score_10'                                        => null,
                 ],
             ],
             'empty items and products' => [
@@ -2670,6 +3245,8 @@ class AmazonProductPageParserTest extends TestCase
                     'avg___products__customer_rating'                 => null,
                     'cnt___products__is_available'                    => 0,
                     'cnt___products__is_independently_published'      => 0,
+                    'score_1'                                         => null, // No data
+                    'score_10'                                        => null,
                 ],
             ],
         ];
@@ -2715,8 +3292,570 @@ class AmazonProductPageParserTest extends TestCase
             $this->assertEquals($expected['avg___rating_value'], $result['avg___rating_value']);
         }
 
-        // Check score fields are null
-        $this->assertNull($result['score_1']);
-        $this->assertNull($result['score_10']);
+        // Check score fields - should be computed if data is available
+        if (array_key_exists('score_1', $expected)) {
+            if ($expected['score_1'] === null) {
+                $this->assertNull($result['score_1']);
+            } elseif ($expected['score_1'] === 'not_null') {
+                $this->assertNotNull($result['score_1']);
+            } else {
+                $this->assertEqualsWithDelta($expected['score_1'], $result['score_1'], 0.0001);
+            }
+        }
+        if (array_key_exists('score_10', $expected)) {
+            $this->assertEquals($expected['score_10'], $result['score_10']);
+        }
+    }
+
+    public function test_insert_amazon_keywords_stats_row_with_valid_data(): void
+    {
+        // Create a partial mock that allows real methods except the ones we mock
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow to return a listing
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->with('test keyword', 2840, 'en_US', 'desktop')
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'test keyword',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 100,
+                'items_count'      => 10,
+            ]);
+
+        // Mock fetchItems to return items
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->with('test keyword', 2840, 'en_US', 'desktop')
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 1000,
+                    'price_from'         => 10.0,
+                    'rating_value'       => 4.5,
+                    'rating_votes_count' => 100,
+                    'data_asin'          => 'B0TEST001',
+                ],
+                [
+                    'rank_absolute'      => 2,
+                    'bought_past_month'  => 2000,
+                    'price_from'         => 20.0,
+                    'rating_value'       => 4.0,
+                    'rating_votes_count' => 200,
+                    'data_asin'          => 'B0TEST002',
+                ],
+            ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('test keyword');
+
+        $this->assertEquals(1, $result['inserted']);
+        $this->assertEquals(0, $result['skipped']);
+        $this->assertEquals('test keyword', $result['keyword']);
+        $this->assertNull($result['reason']);
+
+        // Verify data was inserted into amazon_keywords_stats
+        $this->assertDatabaseHas('amazon_keywords_stats', [
+            'keyword'          => 'test keyword',
+            'location_code'    => 2840,
+            'language_code'    => 'en_US',
+            'device'           => 'desktop',
+            'se_results_count' => 100,
+            'items_count'      => 10,
+        ]);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_returns_no_listing_when_not_found(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow to return null (no listing found)
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->with('nonexistent keyword', 2840, 'en_US', 'desktop')
+            ->andReturn(null);
+
+        // fetchItems should not be called when listing is not found
+        $parser->shouldNotReceive('fetchItems');
+
+        $result = $parser->insertAmazonKeywordsStatsRow('nonexistent keyword');
+
+        $this->assertEquals(0, $result['inserted']);
+        $this->assertEquals(1, $result['skipped']);
+        $this->assertEquals('nonexistent keyword', $result['keyword']);
+        $this->assertEquals('no_listing', $result['reason']);
+
+        // Verify no data was inserted
+        $this->assertDatabaseCount('amazon_keywords_stats', 0);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_skips_duplicate(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->twice()
+            ->with('duplicate keyword', 2840, 'en_US', 'desktop')
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'duplicate keyword',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 50,
+                'items_count'      => 5,
+            ]);
+
+        // Mock fetchItems
+        $parser->shouldReceive('fetchItems')
+            ->twice()
+            ->with('duplicate keyword', 2840, 'en_US', 'desktop')
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 500,
+                    'price_from'         => 15.0,
+                    'rating_value'       => 4.8,
+                    'rating_votes_count' => 50,
+                    'data_asin'          => 'B0DUP001',
+                ],
+            ]);
+
+        // First insert
+        $result1 = $parser->insertAmazonKeywordsStatsRow('duplicate keyword');
+        $this->assertEquals(1, $result1['inserted']);
+        $this->assertEquals(0, $result1['skipped']);
+
+        // Second insert (should be skipped)
+        $result2 = $parser->insertAmazonKeywordsStatsRow('duplicate keyword');
+        $this->assertEquals(0, $result2['inserted']);
+        $this->assertEquals(1, $result2['skipped']);
+        $this->assertEquals('duplicate keyword', $result2['keyword']);
+        $this->assertEquals('duplicate', $result2['reason']);
+
+        // Verify only one row exists
+        $this->assertDatabaseCount('amazon_keywords_stats', 1);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_with_custom_parameters(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow with custom location/language/device
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->with('uk keyword', 2826, 'en_GB', 'mobile')
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'uk keyword',
+                'location_code'    => 2826,
+                'language_code'    => 'en_GB',
+                'device'           => 'mobile',
+                'se_results_count' => 200,
+                'items_count'      => 15,
+            ]);
+
+        // Mock fetchItems
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->with('uk keyword', 2826, 'en_GB', 'mobile')
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 800,
+                    'price_from'         => 12.0,
+                    'rating_value'       => 4.3,
+                    'rating_votes_count' => 80,
+                    'data_asin'          => 'B0UK001',
+                ],
+            ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('uk keyword', 2826, 'en_GB', 'mobile');
+
+        $this->assertEquals(1, $result['inserted']);
+        $this->assertEquals('uk keyword', $result['keyword']);
+
+        // Verify correct location/language/device
+        $this->assertDatabaseHas('amazon_keywords_stats', [
+            'keyword'       => 'uk keyword',
+            'location_code' => 2826,
+            'language_code' => 'en_GB',
+            'device'        => 'mobile',
+        ]);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_with_empty_items(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->with('no items keyword', 2840, 'en_US', 'desktop')
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'no items keyword',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 10,
+                'items_count'      => 0,
+            ]);
+
+        // Mock fetchItems to return empty array
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->with('no items keyword', 2840, 'en_US', 'desktop')
+            ->andReturn([]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('no items keyword');
+
+        $this->assertEquals(1, $result['inserted']);
+        $this->assertEquals('no items keyword', $result['keyword']);
+
+        // Verify data was inserted even with no items
+        $this->assertDatabaseHas('amazon_keywords_stats', [
+            'keyword'     => 'no items keyword',
+            'items_count' => 0,
+        ]);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_sets_processed_fields_to_null(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'test processed',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 50,
+                'items_count'      => 5,
+            ]);
+
+        // Mock fetchItems
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 100,
+                    'price_from'         => 10.0,
+                    'rating_value'       => 4.0,
+                    'rating_votes_count' => 50,
+                    'data_asin'          => 'B0PROC01',
+                ],
+            ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('test processed');
+
+        $this->assertEquals(1, $result['inserted']);
+
+        // Verify processed_at and processed_status are NULL
+        $this->assertDatabaseHas('amazon_keywords_stats', [
+            'keyword'          => 'test processed',
+            'processed_at'     => null,
+            'processed_status' => null,
+        ]);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_json_encodes_array_fields(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Explicitly set statsItemsLimit to ensure both test items are included
+        $parser->setStatsItemsLimit(10);
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'test json',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 100,
+                'items_count'      => 10,
+            ]);
+
+        // Mock fetchItems with multiple items to generate JSON arrays
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 1000,
+                    'price_from'         => 10.0,
+                    'rating_value'       => 4.5,
+                    'rating_votes_count' => 100,
+                    'data_asin'          => 'B0JSON01',
+                ],
+                [
+                    'rank_absolute'      => 2,
+                    'bought_past_month'  => 2000,
+                    'price_from'         => 20.0,
+                    'rating_value'       => 4.0,
+                    'rating_votes_count' => 200,
+                    'data_asin'          => 'B0JSON02',
+                ],
+            ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('test json');
+
+        $this->assertEquals(1, $result['inserted']);
+
+        // Verify JSON fields are properly encoded as strings in database
+        $stats = $this->app['db']->table('amazon_keywords_stats')
+            ->where('keyword', 'test json')
+            ->first();
+
+        $this->assertNotNull($stats);
+
+        // json___price_from should be a JSON string
+        $this->assertIsString($stats->json___price_from);
+        $priceFromArray = json_decode($stats->json___price_from, true);
+        $this->assertIsArray($priceFromArray);
+
+        // Both items have rank_absolute <= statsItemsLimit (10), so both prices should be included
+        $this->assertCount(2, $priceFromArray);
+        // Values might be stored as strings or numbers, so check both
+        $this->assertTrue(
+            in_array(10.0, $priceFromArray, true) || in_array('10', $priceFromArray, true) || in_array(10, $priceFromArray, true),
+            'Array should contain 10.0: ' . json_encode($priceFromArray)
+        );
+        $this->assertTrue(
+            in_array(20.0, $priceFromArray, true) || in_array('20', $priceFromArray, true) || in_array(20, $priceFromArray, true),
+            'Array should contain 20.0: ' . json_encode($priceFromArray)
+        );
+    }
+
+    public function test_insert_amazon_keywords_stats_row_with_products_data(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Explicitly set statsAmazonProductsLimit to ensure all 3 test items are included
+        $parser->setStatsAmazonProductsLimit(3);
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->with('books keyword', 2840, 'en_US', 'desktop')
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'books keyword',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 500,
+                'items_count'      => 20,
+            ]);
+
+        // Mock fetchItems - items with rank_absolute <= 3 will query products table
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->with('books keyword', 2840, 'en_US', 'desktop')
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => null, // No bought_past_month, should use products fallback
+                    'price_from'         => 15.0,
+                    'rating_value'       => 4.5,
+                    'rating_votes_count' => 150,
+                    'data_asin'          => 'B0BOOK001',
+                ],
+                [
+                    'rank_absolute'      => 2,
+                    'bought_past_month'  => 800,
+                    'price_from'         => 12.0,
+                    'rating_value'       => 4.3,
+                    'rating_votes_count' => 120,
+                    'data_asin'          => 'B0BOOK002',
+                ],
+                [
+                    'rank_absolute'      => 3,
+                    'bought_past_month'  => null,
+                    'price_from'         => 18.0,
+                    'rating_value'       => 4.7,
+                    'rating_votes_count' => 200,
+                    'data_asin'          => 'B0BOOK003',
+                ],
+            ]);
+
+        // Insert products into amazon_products table (this is our internal table)
+        $this->app['db']->table('amazon_products')->insert([
+            [
+                'asin'                   => 'B0BOOK001',
+                'title'                  => 'Test Book 1',
+                'categories'             => json_encode(['Books', 'Fiction']),
+                'monthly_sales_estimate' => 1000,
+                'price'                  => 15.0,
+                'customer_rating'        => 4.5,
+                'customer_reviews_count' => 150,
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ],
+            [
+                'asin'                   => 'B0BOOK002',
+                'title'                  => 'Test Book 2',
+                'categories'             => json_encode(['Books', 'Non-Fiction']),
+                'monthly_sales_estimate' => 800,
+                'price'                  => 12.0,
+                'customer_rating'        => 4.3,
+                'customer_reviews_count' => 120,
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ],
+            [
+                'asin'                   => 'B0BOOK003',
+                'title'                  => 'Test Book 3',
+                'categories'             => json_encode(['Books', 'Science']),
+                'monthly_sales_estimate' => 1200,
+                'price'                  => 18.0,
+                'customer_rating'        => 4.7,
+                'customer_reviews_count' => 200,
+                'created_at'             => now(),
+                'updated_at'             => now(),
+            ],
+        ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('books keyword');
+
+        $this->assertEquals(1, $result['inserted']);
+        $this->assertEquals('books keyword', $result['keyword']);
+
+        // Verify data was inserted
+        $this->assertDatabaseHas('amazon_keywords_stats', [
+            'keyword'          => 'books keyword',
+            'se_results_count' => 500,
+            'items_count'      => 20,
+        ]);
+
+        // Verify products data was used in computation
+        $stats = $this->app['db']->table('amazon_keywords_stats')
+            ->where('keyword', 'books keyword')
+            ->first();
+
+        $this->assertNotNull($stats);
+
+        // Verify json___products__price contains the 3 product prices
+        $productsPriceArray = json_decode($stats->json___products__price, true);
+        $this->assertIsArray($productsPriceArray);
+        $this->assertCount(3, $productsPriceArray);
+
+        // Values might be stored as strings or numbers
+        $this->assertTrue(
+            in_array(15.0, $productsPriceArray, true) || in_array('15', $productsPriceArray, true) || in_array(15, $productsPriceArray, true),
+            'Array should contain 15.0: ' . json_encode($productsPriceArray)
+        );
+        $this->assertTrue(
+            in_array(12.0, $productsPriceArray, true) || in_array('12', $productsPriceArray, true) || in_array(12, $productsPriceArray, true),
+            'Array should contain 12.0: ' . json_encode($productsPriceArray)
+        );
+        $this->assertTrue(
+            in_array(18.0, $productsPriceArray, true) || in_array('18', $productsPriceArray, true) || in_array(18, $productsPriceArray, true),
+            'Array should contain 18.0: ' . json_encode($productsPriceArray)
+        );
+
+        // Verify avg___products__monthly_sales_estimate is computed from products
+        // (1000 + 800 + 1200) / 3 = 1000
+        $this->assertEquals(1000.0, $stats->avg___products__monthly_sales_estimate);
+    }
+
+    public function test_insert_amazon_keywords_stats_row_computes_all_key_fields(): void
+    {
+        /** @var AmazonProductPageParser&\Mockery\MockInterface $parser */
+        $parser = Mockery::mock(AmazonProductPageParser::class)->makePartial();
+
+        // Explicitly set statsItemsLimit to ensure both test items are included
+        $parser->setStatsItemsLimit(10);
+
+        // Mock fetchListingsRow
+        $parser->shouldReceive('fetchListingsRow')
+            ->once()
+            ->andReturn((object)[
+                'id'               => 1,
+                'keyword'          => 'comprehensive test',
+                'location_code'    => 2840,
+                'language_code'    => 'en_US',
+                'device'           => 'desktop',
+                'se_results_count' => 1000,
+                'items_count'      => 50,
+            ]);
+
+        // Mock fetchItems with data that will generate all stats
+        $parser->shouldReceive('fetchItems')
+            ->once()
+            ->andReturn([
+                [
+                    'rank_absolute'      => 1,
+                    'bought_past_month'  => 5000,
+                    'price_from'         => 25.0,
+                    'rating_value'       => 4.8,
+                    'rating_votes_count' => 500,
+                    'data_asin'          => 'B0COMP001',
+                ],
+                [
+                    'rank_absolute'      => 2,
+                    'bought_past_month'  => 3000,
+                    'price_from'         => 30.0,
+                    'rating_value'       => 4.5,
+                    'rating_votes_count' => 300,
+                    'data_asin'          => 'B0COMP002',
+                ],
+            ]);
+
+        $result = $parser->insertAmazonKeywordsStatsRow('comprehensive test');
+
+        $this->assertEquals(1, $result['inserted']);
+
+        // Verify all key computed fields are present and not null
+        $stats = $this->app['db']->table('amazon_keywords_stats')
+            ->where('keyword', 'comprehensive test')
+            ->first();
+
+        $this->assertNotNull($stats);
+
+        // Verify listing fields
+        $this->assertEquals(1, $stats->dataforseo_merchant_amazon_products_listings_id);
+        $this->assertEquals('comprehensive test', $stats->keyword);
+        $this->assertEquals(2840, $stats->location_code);
+        $this->assertEquals('en_US', $stats->language_code);
+        $this->assertEquals('desktop', $stats->device);
+        $this->assertEquals(1000, $stats->se_results_count);
+        $this->assertEquals(50, $stats->items_count);
+
+        // Verify items stats are computed
+        $this->assertNotNull($stats->avg___price_from);
+        $this->assertEquals(27.5, $stats->avg___price_from); // (25 + 30) / 2
+        $this->assertNotNull($stats->avg___bought_past_month);
+        $this->assertEquals(4000.0, $stats->avg___bought_past_month); // (5000 + 3000) / 2
+
+        // Verify scores are computed
+        $this->assertNotNull($stats->score_1);
+        $this->assertNotNull($stats->score_2);
+        $this->assertNotNull($stats->score_3);
+        $this->assertNotNull($stats->cv_monthly_sales_estimate);
+
+        // Verify timestamps
+        $this->assertNotNull($stats->created_at);
+        $this->assertNotNull($stats->updated_at);
+        $this->assertNull($stats->processed_at);
+        $this->assertNull($stats->processed_status);
     }
 }
