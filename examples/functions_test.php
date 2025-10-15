@@ -7,6 +7,8 @@ require_once __DIR__ . '/../examples/bootstrap.php';
 use FOfX\Utility;
 use Illuminate\Support\Facades\DB;
 
+$start = microtime(true);
+
 $tables = Utility\get_tables();
 printf("Tables before table creation: %s\n", json_encode($tables));
 
@@ -24,3 +26,6 @@ printf("Public suffix list path: %s\n", $path);
 // Extract registrable domain
 $domain = Utility\extract_registrable_domain('https://www.example.com');
 printf("Registrable domain: %s\n", $domain);
+
+$end = microtime(true);
+echo "\nTotal time: " . ($end - $start) . " seconds\n";

@@ -10,6 +10,8 @@ use function FOfX\Utility\list_embedded_json_selectors;
 use function FOfX\Utility\extract_embedded_json_blocks;
 use function FOfX\Utility\filter_json_blocks_by_selector;
 
+$start = microtime(true);
+
 $html = file_get_contents(__DIR__ . '/../resources/2-httpswwwfiverrcomcategoriesgraphics-designcreative-logo-design-fiverrcom-browserhtml.html');
 
 // See what JSON <script> tags exist
@@ -34,3 +36,6 @@ $data = $data['listings'][0]['gigs'] ?? [];
 
 $paths = array_keys(Arr::dot($data));
 print_r($paths);
+
+$end = microtime(true);
+echo "\nTotal time: " . ($end - $start) . " seconds\n";

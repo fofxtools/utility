@@ -5,6 +5,8 @@ require_once __DIR__ . '/../examples/bootstrap.php';
 use FOfX\Utility;
 use Illuminate\Support\Facades\Storage;
 
+$start = microtime(true);
+
 $files = [
     __DIR__ . '/../resources/1-httpswwwfiverrcomcategories-fiverrcom-common.html',
     __DIR__ . '/../resources/2-httpswwwfiverrcomcategoriesgraphics-designcreative-logo-design-fiverrcom-browserhtml.html',
@@ -25,3 +27,6 @@ foreach ($files as $filename) {
         echo "File exists: $saveFilename" . PHP_EOL;
     }
 }
+
+$end = microtime(true);
+echo "\nTotal time: " . ($end - $start) . " seconds\n";

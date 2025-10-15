@@ -4,6 +4,8 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use FOfX\Utility;
 
+$start = microtime(true);
+
 $files = [
     __DIR__ . '/../resources/listing-selected-fields.json',
     __DIR__ . '/../resources/gig-selected-fields.json',
@@ -19,3 +21,6 @@ foreach ($files as $file) {
     $values = Utility\extract_values_by_paths($data, $paths, delimiter: '__');
     //print_r($values);
 }
+
+$end = microtime(true);
+echo "\nTotal time: " . ($end - $start) . " seconds\n";
