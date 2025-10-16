@@ -241,15 +241,17 @@ class AmazonBrowseNodeImporter
                 if (!isset($existingNodes[$browseNodeId])) {
                     // Add to collection
                     $nodesToInsert[] = [
-                        'browse_node_id'   => $browseNodeId,
-                        'name'             => $nodeName,
-                        'parent_id'        => $currentParentId,
-                        'path'             => $fullPath,
-                        'level'            => $level,
-                        'created_at'       => now(),
-                        'updated_at'       => now(),
-                        'processed_at'     => null,
-                        'processed_status' => null,
+                        'browse_node_id'            => $browseNodeId,
+                        'name'                      => $nodeName,
+                        'parent_id'                 => $currentParentId,
+                        'path'                      => $fullPath,
+                        'level'                     => $level,
+                        'created_at'                => now(),
+                        'updated_at'                => now(),
+                        'processed_at'              => null,
+                        'processed_status'          => null,
+                        'response_processed_at'     => null,
+                        'response_processed_status' => null,
                     ];
 
                     $existingNodes[$browseNodeId] = true;

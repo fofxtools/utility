@@ -17,6 +17,8 @@ return new class () extends Migration {
             $table->timestamps();
             $table->timestamp('processed_at')->nullable()->index();
             $table->json('processed_status')->nullable();
+            $table->timestamp('response_processed_at')->nullable()->index();
+            $table->json('response_processed_status')->nullable();
 
             $table->unique('browse_node_id');
         });

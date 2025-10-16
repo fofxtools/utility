@@ -23,6 +23,11 @@ composer require fofx/utility
 See usage examples in:
 
 - [docs/usage.md](docs/usage.md)
+- [docs/usage-json-to-columns.md](docs/usage-json-to-columns.md)
+- [docs/usage-FiverrSitemapImporter.md](docs/usage-FiverrSitemapImporter.md)
+- [docs/usage-FiverrJsonImporter.md](docs/usage-FiverrJsonImporter.md)
+- [docs/usage-AmazonProductPageParser.md](docs/usage-AmazonProductPageParser.md)
+- [docs/usage-AmazonBrowseNodeImporter.md](docs/usage-AmazonBrowseNodeImporter.md)
 
 ### Extracting and Filtering Embedded JSON from HTML
 
