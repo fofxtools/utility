@@ -25,13 +25,13 @@ return new class () extends Migration {
             $table->integer('microsoft_ip_pageviews')->default(0)->index();
             $table->integer('cnt_pageviews_with_metrics')->default(0)->index(); // Count of pageviews with metrics passed
             $table->float('avg_ttfb_ms')->nullable()->index();
-            $table->float('avg_dom_content_loaded_ms')->nullable()->index();
-            $table->float('avg_load_event_end_ms')->nullable()->index();
             $table->float('median_ttfb_ms')->nullable()->index();
-            $table->float('median_dom_content_loaded_ms')->nullable()->index();
-            $table->float('median_load_event_end_ms')->nullable()->index();
             $table->float('p95_ttfb_ms')->nullable()->index();
+            $table->float('avg_dom_content_loaded_ms')->nullable()->index();
+            $table->float('median_dom_content_loaded_ms')->nullable()->index();
             $table->float('p95_dom_content_loaded_ms')->nullable()->index();
+            $table->float('avg_load_event_end_ms')->nullable()->index();
+            $table->float('median_load_event_end_ms')->nullable()->index();
             $table->float('p95_load_event_end_ms')->nullable()->index();
             $table->timestamps();
             $table->timestamp('processed_at')->nullable()->index();

@@ -12,9 +12,6 @@
  *
  * Input:  ../resources/whois.arin.net-rest-nets-q-{company}.xml
  * Output: ../resources/whois.arin.net-rest-nets-q-{company}.json
- *
- * Usage:
- *   php scripts/convert_arin_xml_to_cidr.php
  */
 
 $resourcesDir = __DIR__ . '/../resources';

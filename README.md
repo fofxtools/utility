@@ -28,6 +28,7 @@ See usage examples in:
 - [docs/usage-FiverrJsonImporter.md](docs/usage-FiverrJsonImporter.md)
 - [docs/usage-AmazonProductPageParser.md](docs/usage-AmazonProductPageParser.md)
 - [docs/usage-AmazonBrowseNodeImporter.md](docs/usage-AmazonBrowseNodeImporter.md)
+- [docs/usage-tracking.md](docs/usage-tracking.md)
 
 ### Extracting and Filtering Embedded JSON from HTML
 

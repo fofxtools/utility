@@ -452,6 +452,199 @@ function is_microsoft_ip(string $ip): bool
 }
 
 /* ─────────────────────────────
+   Blacklist Checking
+   ───────────────────────────── */
+
+/**
+ * Check if an IP address is within a CIDR range.
+ * Supports both IPv4 and IPv6.
+ *
+ * @param string $ip   IP address to check
+ * @param string $cidr CIDR range (e.g., '192.168.1.0/24' or '2001:db8::/32')
+ *
+ * @return bool True if IP is in CIDR range
+ */
+function ip_in_cidr(string $ip, string $cidr): bool
+{
+    // Validate CIDR format
+    if (strpos($cidr, '/') === false) {
+        return false;
+    }
+
+    [$subnet, $prefixStr] = explode('/', $cidr, 2);
+    $subnet               = trim($subnet);
+    $prefixStr            = trim($prefixStr);
+
+    // Prefix must be digits only
+    if ($prefixStr === '' || !ctype_digit($prefixStr)) {
+        return false;
+    }
+    $prefixLen = (int)$prefixStr;
+
+    // Validate IP and subnet
+    $ipBin     = inet_pton($ip);
+    $subnetBin = inet_pton($subnet);
+
+    if ($ipBin === false || $subnetBin === false) {
+        return false;
+    }
+
+    // Must be same IP version
+    if (strlen($ipBin) !== strlen($subnetBin)) {
+        return false;
+    }
+
+    $maxPrefixLen = (strlen($ipBin) === 4) ? 32 : 128;
+
+    // Validate prefix length
+    if ($prefixLen < 0 || $prefixLen > $maxPrefixLen) {
+        return false;
+    }
+
+    // Create mask
+    $fullBytes = intdiv($prefixLen, 8);
+    $remBits   = $prefixLen % 8;
+
+    $mask = ($fullBytes > 0) ? str_repeat("\xff", $fullBytes) : '';
+    if ($remBits > 0) {
+        $mask .= chr(0xff ^ ((1 << (8 - $remBits)) - 1));
+    }
+    $mask = str_pad($mask, strlen($ipBin), "\x00");
+
+    // Compare network portions
+    return ($ipBin & $mask) === ($subnetBin & $mask);
+}
+
+/**
+ * Check if an IP address is blacklisted.
+ *
+ * @param string     $ip         IP address to check
+ * @param array|null $ips        Individual IPs to check against (null = use config)
+ * @param array|null $cidrBlocks CIDR ranges to check against (null = use config)
+ *
+ * @return bool True if IP is blacklisted
+ */
+function is_ip_blacklisted(string $ip, ?array $ips = null, ?array $cidrBlocks = null): bool
+{
+    // Load config if not provided
+    if ($ips === null || $cidrBlocks === null) {
+        static $config = null;
+        if ($config === null) {
+            $configFile = __DIR__ . '/track_config.php';
+            $config     = file_exists($configFile) ? include $configFile : [];
+        }
+
+        if ($ips === null) {
+            $ips = $config['blacklist_ips'] ?? [];
+        }
+        if ($cidrBlocks === null) {
+            $cidrBlocks = $config['blacklist_ips_cidr'] ?? [];
+        }
+    }
+
+    // Clean config arrays (trim whitespace, remove empty strings, ensure strings)
+    $ips        = array_filter(array_map(static fn ($v) => is_string($v) ? trim($v) : '', $ips));
+    $cidrBlocks = array_filter(array_map(static fn ($v) => is_string($v) ? trim($v) : '', $cidrBlocks));
+
+    // Validate IP
+    $ipBin = inet_pton($ip);
+    if ($ipBin === false) {
+        return false; // Invalid IPs can not be blacklisted
+    }
+
+    // Normalize IPv4-mapped IPv6 to IPv4
+    $ipForCidr = $ip; // Default to original
+    if (strlen($ipBin) === 16 && substr($ipBin, 0, 12) === str_repeat("\x00", 10) . "\xFF\xFF") {
+        $ipv4Tail  = substr($ipBin, 12);
+        $ipBin     = $ipv4Tail;                // For exact matches
+        $ipForCidr = inet_ntop($ipv4Tail); // For CIDR checks
+    }
+
+    // Check individual IPs (binary comparison to handle IPv6 textual variants)
+    foreach ($ips as $blacklistedIp) {
+        $blacklistedBin = inet_pton($blacklistedIp);
+        if ($blacklistedBin === false) {
+            continue;
+        }
+
+        // Normalize IPv4-mapped IPv6 to IPv4
+        if (strlen($blacklistedBin) === 16 && substr($blacklistedBin, 0, 12) === str_repeat("\x00", 10) . "\xFF\xFF") {
+            $blacklistedBin = substr($blacklistedBin, 12);
+        }
+
+        if (strlen($ipBin) === strlen($blacklistedBin) && $ipBin === $blacklistedBin) {
+            return true;
+        }
+    }
+
+    // Check CIDR ranges (use normalized IP string)
+    foreach ($cidrBlocks as $cidr) {
+        if (ip_in_cidr($ipForCidr, $cidr)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if a user agent is blacklisted.
+ *
+ * @param string     $userAgent  User agent string to check
+ * @param array|null $exact      Exact match strings (null = use config)
+ * @param array|null $substrings Substring match strings (null = use config)
+ *
+ * @return bool True if user agent is blacklisted
+ */
+function is_user_agent_blacklisted(string $userAgent, ?array $exact = null, ?array $substrings = null): bool
+{
+    // Load config if not provided
+    if ($exact === null || $substrings === null) {
+        static $config = null;
+        if ($config === null) {
+            $configFile = __DIR__ . '/track_config.php';
+            $config     = file_exists($configFile) ? include $configFile : [];
+        }
+
+        if ($exact === null) {
+            $exact = $config['blacklist_user_agents_exact'] ?? [];
+        }
+        if ($substrings === null) {
+            $substrings = $config['blacklist_user_agents_substring'] ?? [];
+        }
+    }
+
+    // Check exact matches (case-insensitive)
+    foreach ($exact as $blacklistedUA) {
+        if (strcasecmp($userAgent, $blacklistedUA) === 0) {
+            return true;
+        }
+    }
+
+    // Check substring matches (case-insensitive)
+    foreach ($substrings as $substring) {
+        if (stripos($userAgent, $substring) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if an IP address or user agent is blacklisted.
+ *
+ * @param string $ip        IP address to check
+ * @param string $userAgent User agent string to check
+ *
+ * @return bool True if either IP or user agent is blacklisted
+ */
+function is_blacklisted(string $ip, string $userAgent): bool
+{
+    return is_ip_blacklisted($ip) || is_user_agent_blacklisted($userAgent);
+}
+
+/* ─────────────────────────────
    Database Operations
    ───────────────────────────── */
 

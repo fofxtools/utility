@@ -23,8 +23,8 @@
  *   - google_ip_ranges.php
  *   - bing_ip_ranges.php
  *
- * Usage:
- *   php scripts/generate_bot_ip_arrays.php
+ * To generate the whois.arin.net-rest-nets-q-{company}.json files, run:
+ *   - scripts/convert_arin_xml_to_cidr.php
  */
 
 $resourcesDir = __DIR__ . '/../resources';

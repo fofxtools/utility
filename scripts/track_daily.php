@@ -35,6 +35,15 @@ try {
 }
 
 /* ─────────────────────────────
+   Blacklist Check
+   ───────────────────────────── */
+
+if (is_blacklisted($config['ip'] ?? '', $config['user_agent'] ?? '')) {
+    http_response_code(204);
+    exit;
+}
+
+/* ─────────────────────────────
    Required
    ───────────────────────────── */
 
