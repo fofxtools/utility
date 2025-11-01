@@ -1,4 +1,7 @@
 (function() {
+    // Allow external config (e.g., WordPress) to override URL
+    var trackUrl = (typeof PVT !== "undefined" && PVT.trackUrl) ? PVT.trackUrl : "track_pageview.php";
+
     function makeViewId() {
         // Use the built-in crypto UUID if available
         if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -38,7 +41,7 @@
     function sendPageview() {
         if (sentPageview) return;
         sentPageview = true;
-        send("track.php", {
+        send(trackUrl, {
             type: "pageview",
             view_id: viewId,
             url: location.href,
@@ -81,7 +84,7 @@
                     detail: metrics
                 }));
 
-                send("track.php", {
+                send(trackUrl, {
                     type: "metrics",
                     view_id: viewId,
                     url: location.href,

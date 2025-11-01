@@ -2,9 +2,35 @@
 
 declare(strict_types=1);
 
+namespace FOfX\Utility\PageviewTracking;
+
+use PDO;
+
 /* ─────────────────────────────
    Helpers
    ───────────────────────────── */
+
+/**
+ * Load tracking configuration from track_config.php.
+ * Uses static caching to load only once per request.
+ *
+ * @return array Configuration array
+ */
+function load_tracking_config(): array
+{
+    static $config = null;
+    if ($config === null) {
+        $configFile = __DIR__ . '/track_config.php';
+        $config     = file_exists($configFile) ? include $configFile : [];
+
+        // Validate and fallback to empty array
+        if (!is_array($config)) {
+            $config = [];
+        }
+    }
+
+    return $config;
+}
 
 /**
  * Load environment variables from a .env file.
@@ -452,7 +478,7 @@ function is_microsoft_ip(string $ip): bool
 }
 
 /* ─────────────────────────────
-   Blacklist Checking
+   Exclude Checking
    ───────────────────────────── */
 
 /**
@@ -516,29 +542,25 @@ function ip_in_cidr(string $ip, string $cidr): bool
 }
 
 /**
- * Check if an IP address is blacklisted.
+ * Check if an IP address is excluded.
  *
  * @param string     $ip         IP address to check
  * @param array|null $ips        Individual IPs to check against (null = use config)
  * @param array|null $cidrBlocks CIDR ranges to check against (null = use config)
  *
- * @return bool True if IP is blacklisted
+ * @return bool True if IP is excluded
  */
-function is_ip_blacklisted(string $ip, ?array $ips = null, ?array $cidrBlocks = null): bool
+function is_ip_excluded(string $ip, ?array $ips = null, ?array $cidrBlocks = null): bool
 {
     // Load config if not provided
     if ($ips === null || $cidrBlocks === null) {
-        static $config = null;
-        if ($config === null) {
-            $configFile = __DIR__ . '/track_config.php';
-            $config     = file_exists($configFile) ? include $configFile : [];
-        }
+        $config = load_tracking_config();
 
         if ($ips === null) {
-            $ips = $config['blacklist_ips'] ?? [];
+            $ips = $config['exclude_ips'] ?? [];
         }
         if ($cidrBlocks === null) {
-            $cidrBlocks = $config['blacklist_ips_cidr'] ?? [];
+            $cidrBlocks = $config['exclude_ips_cidr'] ?? [];
         }
     }
 
@@ -549,7 +571,7 @@ function is_ip_blacklisted(string $ip, ?array $ips = null, ?array $cidrBlocks = 
     // Validate IP
     $ipBin = inet_pton($ip);
     if ($ipBin === false) {
-        return false; // Invalid IPs can not be blacklisted
+        return false; // Invalid IPs can not be excluded
     }
 
     // Normalize IPv4-mapped IPv6 to IPv4
@@ -561,18 +583,18 @@ function is_ip_blacklisted(string $ip, ?array $ips = null, ?array $cidrBlocks = 
     }
 
     // Check individual IPs (binary comparison to handle IPv6 textual variants)
-    foreach ($ips as $blacklistedIp) {
-        $blacklistedBin = inet_pton($blacklistedIp);
-        if ($blacklistedBin === false) {
+    foreach ($ips as $excludedIp) {
+        $excludedBin = inet_pton($excludedIp);
+        if ($excludedBin === false) {
             continue;
         }
 
         // Normalize IPv4-mapped IPv6 to IPv4
-        if (strlen($blacklistedBin) === 16 && substr($blacklistedBin, 0, 12) === str_repeat("\x00", 10) . "\xFF\xFF") {
-            $blacklistedBin = substr($blacklistedBin, 12);
+        if (strlen($excludedBin) === 16 && substr($excludedBin, 0, 12) === str_repeat("\x00", 10) . "\xFF\xFF") {
+            $excludedBin = substr($excludedBin, 12);
         }
 
-        if (strlen($ipBin) === strlen($blacklistedBin) && $ipBin === $blacklistedBin) {
+        if (strlen($ipBin) === strlen($excludedBin) && $ipBin === $excludedBin) {
             return true;
         }
     }
@@ -588,35 +610,31 @@ function is_ip_blacklisted(string $ip, ?array $ips = null, ?array $cidrBlocks = 
 }
 
 /**
- * Check if a user agent is blacklisted.
+ * Check if a user agent is excluded.
  *
  * @param string     $userAgent  User agent string to check
  * @param array|null $exact      Exact match strings (null = use config)
  * @param array|null $substrings Substring match strings (null = use config)
  *
- * @return bool True if user agent is blacklisted
+ * @return bool True if user agent is excluded
  */
-function is_user_agent_blacklisted(string $userAgent, ?array $exact = null, ?array $substrings = null): bool
+function is_user_agent_excluded(string $userAgent, ?array $exact = null, ?array $substrings = null): bool
 {
     // Load config if not provided
     if ($exact === null || $substrings === null) {
-        static $config = null;
-        if ($config === null) {
-            $configFile = __DIR__ . '/track_config.php';
-            $config     = file_exists($configFile) ? include $configFile : [];
-        }
+        $config = load_tracking_config();
 
         if ($exact === null) {
-            $exact = $config['blacklist_user_agents_exact'] ?? [];
+            $exact = $config['exclude_user_agents_exact'] ?? [];
         }
         if ($substrings === null) {
-            $substrings = $config['blacklist_user_agents_substring'] ?? [];
+            $substrings = $config['exclude_user_agents_substring'] ?? [];
         }
     }
 
     // Check exact matches (case-insensitive)
-    foreach ($exact as $blacklistedUA) {
-        if (strcasecmp($userAgent, $blacklistedUA) === 0) {
+    foreach ($exact as $excludedUA) {
+        if (strcasecmp($userAgent, $excludedUA) === 0) {
             return true;
         }
     }
@@ -632,16 +650,16 @@ function is_user_agent_blacklisted(string $userAgent, ?array $exact = null, ?arr
 }
 
 /**
- * Check if an IP address or user agent is blacklisted.
+ * Check if an IP address or user agent is excluded.
  *
  * @param string $ip        IP address to check
  * @param string $userAgent User agent string to check
  *
- * @return bool True if either IP or user agent is blacklisted
+ * @return bool True if either IP or user agent is excluded
  */
-function is_blacklisted(string $ip, string $userAgent): bool
+function is_excluded(string $ip, string $userAgent): bool
 {
-    return is_ip_blacklisted($ip) || is_user_agent_blacklisted($userAgent);
+    return is_ip_excluded($ip) || is_user_agent_excluded($userAgent);
 }
 
 /* ─────────────────────────────
@@ -1004,23 +1022,57 @@ function get_tracking_config(): array
     $dbUser = null;
     $dbPass = null;
 
-    if (file_exists(__DIR__ . '/../.env')) {
-        load_env(__DIR__ . '/../.env');
-        $dbHost = getenv('DB_HOST');
-        $dbName = getenv('DB_DATABASE');
-        $dbUser = getenv('DB_USERNAME');
-        $dbPass = getenv('DB_PASSWORD');
-    } elseif (file_exists($_SERVER['DOCUMENT_ROOT'] . '/../wp-config.php')) {
-        include_once $_SERVER['DOCUMENT_ROOT'] . '/../wp-config.php';
-        if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER') && defined('DB_PASSWORD')) {
+    // Load tracking config to get db_config_file setting
+    $trackConfig  = load_tracking_config();
+    $dbConfigFile = $trackConfig['db_config_file'] ?? 'auto';
+
+    // Handle db_config_file setting
+    if ($dbConfigFile === 'auto') {
+        // Auto-detect: Try wp-config.php if constants aren't defined yet (standard plugin path)
+        if (!defined('DB_HOST') && file_exists(__DIR__ . '/../../../wp-config.php')) {
+            require_once __DIR__ . '/../../../wp-config.php';
+        }
+
+        // Fallback: Try .env file if constants still not defined (standalone context)
+        if (!defined('DB_HOST') && file_exists(__DIR__ . '/../.env')) {
+            load_env(__DIR__ . '/../.env');
+        }
+    } elseif ($dbConfigFile !== null) {
+        // Resolve relative path (relative to track_config.php location = __DIR__)
+        $resolvedPath = __DIR__ . '/' . $dbConfigFile;
+
+        if (file_exists($resolvedPath)) {
+            // Detect file type by extension
+            if (str_ends_with($dbConfigFile, '.env')) {
+                load_env($resolvedPath);
+            } else {
+                // Assume wp-config.php or similar
+                require_once $resolvedPath;
+            }
+        }
+    }
+    // If $dbConfigFile is null, skip loading (use already-defined constants only)
+
+    // Check if WordPress constants are defined (either already loaded or from files above)
+    if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER') && defined('DB_PASSWORD')) {
+        // Password can be blank, others should not be
+        if (constant('DB_HOST') && constant('DB_NAME') && constant('DB_USER')) {
             $dbHost = constant('DB_HOST');
             $dbName = constant('DB_NAME');
             $dbUser = constant('DB_USER');
             $dbPass = constant('DB_PASSWORD');
         }
     }
+    // Check for environment variables (from .env file)
+    // Password can be blank, others should not be
+    elseif (getenv('DB_HOST') && getenv('DB_DATABASE') && getenv('DB_USERNAME') && getenv('DB_PASSWORD') !== false) {
+        $dbHost = getenv('DB_HOST');
+        $dbName = getenv('DB_DATABASE');
+        $dbUser = getenv('DB_USERNAME');
+        $dbPass = getenv('DB_PASSWORD');
+    }
 
-    if ($dbHost === null || $dbName === null || $dbUser === null || $dbPass === null) {
+    if (empty($dbHost) || empty($dbName) || empty($dbUser) || $dbPass === null) {
         throw new \RuntimeException('No database credentials found.');
     }
 

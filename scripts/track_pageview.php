@@ -97,21 +97,23 @@
 
 declare(strict_types=1);
 
+namespace FOfX\Utility\PageviewTracking;
+
 require_once __DIR__ . '/track_common.php';
 
 try {
     $config = get_tracking_config();
 } catch (\Throwable $e) {
-    conditional_error_log('track.php get_tracking_config() error: ' . $e->getMessage());
+    conditional_error_log('track_pageview.php get_tracking_config() error: ' . $e->getMessage());
     http_response_code(500);
     exit;
 }
 
 /* ─────────────────────────────
-   Blacklist Check
+   Exclude Check
    ───────────────────────────── */
 
-if (is_blacklisted($config['ip'] ?? '', $config['user_agent'] ?? '')) {
+if (is_excluded($config['ip'] ?? '', $config['user_agent'] ?? '')) {
     http_response_code(204);
     exit;
 }
@@ -166,7 +168,7 @@ if ($config['type'] === 'pageview') {
         $config['pdo']->commit();
     } catch (\Throwable $e) {
         $config['pdo']->rollBack();
-        conditional_error_log('track.php pageview error: ' . $e->getMessage());
+        conditional_error_log('track_pageview.php pageview error: ' . $e->getMessage());
     }
 
     http_response_code(204);
@@ -219,7 +221,7 @@ if ($config['type'] === 'pageview') {
         $config['pdo']->commit();
     } catch (\Throwable $e) {
         $config['pdo']->rollBack();
-        conditional_error_log('track.php metrics error: ' . $e->getMessage());
+        conditional_error_log('track_pageview.php metrics error: ' . $e->getMessage());
     }
 
     http_response_code(204);

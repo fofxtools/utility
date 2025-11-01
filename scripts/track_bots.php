@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+namespace FOfX\Utility\PageviewTracking;
+
 require_once __DIR__ . '/track_common.php';
 
 try {
@@ -13,10 +15,10 @@ try {
 }
 
 /* ─────────────────────────────
-   Blacklist Check
+   Exclude Check
    ───────────────────────────── */
 
-if (is_blacklisted($config['ip'] ?? '', $config['user_agent'] ?? '')) {
+if (is_excluded($config['ip'] ?? '', $config['user_agent'] ?? '')) {
     return;
 }
 

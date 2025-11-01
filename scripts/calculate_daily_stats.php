@@ -16,24 +16,22 @@
 // Set memory limit to unlimited just in case
 ini_set('memory_limit', '-1');
 
-// Require track_common.php for get_tracking_config() and is_internal_page()
 require_once __DIR__ . '/track_common.php';
 
-$startTime = microtime(true);
+use function FOfX\Utility\PageviewTracking\get_tracking_config;
+use function FOfX\Utility\PageviewTracking\is_internal_page;
 
-// Set up minimal $_SERVER variables for get_tracking_config()
-$_SERVER['REQUEST_METHOD']  = 'GET';
-$_SERVER['REQUEST_URI']     = '/';
-$_SERVER['HTTP_HOST']       = 'localhost';
-$_SERVER['HTTP_USER_AGENT'] = 'CalculateDailyStats/1.0';
+/* ─────────────────────────────
+   Helper Functions
+   ───────────────────────────── */
 
-// Get database connection
-$config = get_tracking_config();
-$pdo    = $config['pdo'];
-
-echo "Starting statistics calculation...\n\n";
-
-// Helper function: Calculate average
+/**
+ * Calculate average of an array of numbers.
+ *
+ * @param array $array Array of numbers (int/float)
+ *
+ * @return float|null Average of numbers, or null if array is empty
+ */
 function calculate_average(array $array): ?float
 {
     $count = count($array);
@@ -41,7 +39,13 @@ function calculate_average(array $array): ?float
     return $count ? array_sum($array) / $count : null;
 }
 
-// Helper function: Calculate median
+/**
+ * Calculate median of an array of numbers.
+ *
+ * @param array $array Array of numbers (int/float)
+ *
+ * @return float|null Median of numbers, or null if array is empty
+ */
 function calculate_median(array $array): ?float
 {
     $count = count($array);
@@ -59,7 +63,13 @@ function calculate_median(array $array): ?float
     }
 }
 
-// Helper function: Calculate p95
+/**
+ * Calculate 95th percentile of an array of numbers.
+ *
+ * @param array $array Array of numbers (int/float)
+ *
+ * @return float|null 95th percentile of numbers, or null if array is empty
+ */
 function calculate_p95(array $array): ?float
 {
     $count = count($array);
@@ -72,6 +82,28 @@ function calculate_p95(array $array): ?float
 
     return $array[(int)floor(($count - 1) * 0.95)];
 }
+
+/* ─────────────────────────────
+   Configuration
+   ───────────────────────────── */
+
+$startTime = microtime(true);
+
+// Set up minimal $_SERVER variables for get_tracking_config()
+$_SERVER['REQUEST_METHOD']  = 'GET';
+$_SERVER['REQUEST_URI']     = '/';
+$_SERVER['HTTP_HOST']       = 'localhost';
+$_SERVER['HTTP_USER_AGENT'] = 'CalculateDailyStats/1.0';
+
+// Get database connection
+$config = get_tracking_config();
+$pdo    = $config['pdo'];
+
+/* ─────────────────────────────
+   Main Logic
+   ───────────────────────────── */
+
+echo "Starting statistics calculation...\n\n";
 
 // Step 1: Get all rows from tracking_pageviews_daily WHERE cnt_pageviews_with_metrics > 0 AND processed_at IS NULL
 echo "Fetching rows from tracking_pageviews_daily with metrics that need processing...\n";

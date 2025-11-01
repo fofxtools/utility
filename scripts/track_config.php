@@ -5,35 +5,48 @@ declare(strict_types=1);
 /**
  * Tracking Configuration
  *
- * Blacklist settings for IP addresses and user agents.
+ * Database configuration and exclude IP and user agent settings.
  */
 
 return [
     /**
-     * Individual IP addresses to blacklist (IPv4 or IPv6).
+     * Database configuration file path.
+     *
+     * Options:
+     * - 'auto' (default): Auto-detect WordPress wp-config.php, then fallback to .env
+     * - Relative path to .env file: '../.env'
+     * - Relative path to wp-config.php: '../../../wp-config.php' (WordPress plugin context)
+     *
+     * Paths are resolved relative to this config file's directory.
+     */
+    'db_config_file' => 'auto',
+    /**
+     * Individual IP addresses to exclude (IPv4 or IPv6).
+     *
+     * e.g. admin IP, banned IPs, etc.
      *
      * Example: ['192.168.1.100', '2001:db8::1']
      */
-    'blacklist_ips' => [],
+    'exclude_ips' => [],
 
     /**
-     * CIDR ranges to blacklist (IPv4 or IPv6).
+     * CIDR ranges to exclude (IPv4 or IPv6).
      *
      * Example: ['192.168.1.0/24', '2001:db8::/32']
      */
-    'blacklist_ips_cidr' => [],
+    'exclude_ips_cidr' => [],
 
     /**
-     * User agent strings to blacklist (exact match, case-insensitive).
+     * User agent strings to exclude (exact match, case-insensitive).
      *
      * Example: ['BadBot/1.0', 'Scraper/2.0']
      */
-    'blacklist_user_agents_exact' => [],
+    'exclude_user_agents_exact' => [],
 
     /**
-     * User agent substrings to blacklist (substring match, case-insensitive).
+     * User agent substrings to exclude (substring match, case-insensitive).
      *
      * Example: ['badbot', 'scraper']
      */
-    'blacklist_user_agents_substring' => [],
+    'exclude_user_agents_substring' => [],
 ];

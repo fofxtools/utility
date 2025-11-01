@@ -16,6 +16,8 @@ parameters:
         - vendor
         - local/deleted
         - resources
+        - scripts/pageview-tracking.php
+        - scripts/pageview-tracking-daily.php
         - tmp
     ignoreErrors:
         - identifier: larastan.noEnvCallsOutsideOfConfig

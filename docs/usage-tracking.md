@@ -54,7 +54,7 @@ This creates:
 
 **Full Tracking** (dual-beacon with metrics):
 - JavaScript: `scripts/track_pageview.js`
-- PHP Backend: `scripts/track.php`
+- PHP Backend: `scripts/track_pageview.php`
 - Test Page: `scripts/test_track_pageview.php`
 - Features: Event-level data + performance metrics (TTFB, DCL, Load)
 
@@ -72,7 +72,7 @@ This creates:
 
 ### Supporting Files
 
-- `scripts/track_config.php` - Blacklist configuration for IPs and User-Agents
+- `scripts/track_config.php` - Exclude configuration for IPs and User-Agents
 - `scripts/track_common.php` - Shared functions for all tracking scripts
 
 ### Testing

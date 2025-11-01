@@ -25,6 +25,11 @@ ini_set('memory_limit', '-1');
 
 require_once __DIR__ . '/track_common.php';
 
+use function FOfX\Utility\PageviewTracking\get_tracking_config;
+use function FOfX\Utility\PageviewTracking\is_internal_page;
+use function FOfX\Utility\PageviewTracking\is_googlebot_ua;
+use function FOfX\Utility\PageviewTracking\is_bingbot_ua;
+
 $startTime = microtime(true);
 
 /* ─────────────────────────────

@@ -1,4 +1,7 @@
 (function() {
+    // Allow external config (e.g., WordPress) to override URL
+    var trackUrl = (typeof PVTD !== "undefined" && PVTD.trackUrl) ? PVTD.trackUrl : "track_daily.php";
+
     var sentPageview = false;
 
     function send(path, obj) {
@@ -23,7 +26,7 @@
     function sendPageview() {
         if (sentPageview) return;
         sentPageview = true;
-        send("track_daily.php", {
+        send(trackUrl, {
             url: location.href,
             referrer: document.referrer || "",
             language: navigator.language || "",
