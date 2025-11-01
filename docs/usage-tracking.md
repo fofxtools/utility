@@ -45,67 +45,88 @@ php scripts/generate_bot_ip_arrays.php
 ```
 
 This creates:
-- `scripts/google_ip_ranges.php`
-- `scripts/bing_ip_ranges.php`
+- `scripts/plugins/pageview-tracking-core/google_ip_ranges.php`
+- `scripts/plugins/pageview-tracking-core/bing_ip_ranges.php`
 
-## Tracking Scripts
+## WordPress Plugins
 
-### Two Tracking Approaches
+The tracking scripts are organized as three WordPress plugins in `scripts/plugins/`:
 
-**Full Tracking** (dual-beacon with metrics):
-- JavaScript: `scripts/track_pageview.js`
-- PHP Backend: `scripts/track_pageview.php`
-- Test Page: `scripts/test_track_pageview.php`
-- Features: Event-level data + performance metrics (TTFB, DCL, Load)
+### pageview-tracking-core (required)
+Core shared functionality required by the other two plugins.
 
-**Daily Tracking** (simplified):
-- JavaScript: `scripts/track_daily.js`
-- PHP Backend: `scripts/track_daily.php`
-- Test Page: `scripts/test_track_daily.php`
-- Features: Daily aggregates only, no event-level data or metrics
+**Files:**
+- `pageview-tracking-core.php` - Main plugin file
+- `track_common.php` - Shared functions
+- `track_config.php` - Exclude configuration for IPs and User-Agents
+- `track_bots.php` - Bot tracking (detects Googlebot and Bingbot)
+- `google_ip_ranges.php` - Google bot IP ranges
+- `bing_ip_ranges.php` - Bing bot IP ranges
+- `generate_dummy_pageviews.php` - Utility script
+- `fill_tracking_pageviews_daily.php` - Utility script
+- `calculate_daily_stats.php` - Utility script
 
-### Bot Tracking
+### pageview-tracking
+Full tracking with dual-beacon approach and performance metrics.
 
-- `scripts/track_bots.php` - Tracks all pageviews in PHP (no JavaScript)
-- Detects Googlebot and Bingbot by IP and User-Agent
-- Runs on all pageviews including bot traffic
+**Files:**
+- `pageview-tracking.php` - Main plugin file
+- `track_pageview.js` - JavaScript beacon
+- `track_pageview.php` - PHP backend
+- `test_track_pageview.php` - Test page
 
-### Supporting Files
+**Features:** Event-level data + performance metrics (TTFB, DCL, Load)
 
-- `scripts/track_config.php` - Exclude configuration for IPs and User-Agents
-- `scripts/track_common.php` - Shared functions for all tracking scripts
+### pageview-tracking-daily
+Simplified daily tracking without event-level data.
+
+**Files:**
+- `pageview-tracking-daily.php` - Main plugin file
+- `track_daily.js` - JavaScript beacon
+- `track_daily.php` - PHP backend
+- `test_track_daily.php` - Test page
+
+**Features:** Daily aggregates only, no event-level data or metrics
 
 ### Testing
 
 Visit the test pages in a browser to verify tracking is working:
-- `scripts/test_track_pageview.php`
-- `scripts/test_track_daily.php`
+- `scripts/plugins/pageview-tracking/test_track_pageview.php`
+- `scripts/plugins/pageview-tracking-daily/test_track_daily.php`
 
 ## Dummy Data Generation
 
 These utility scripts can generate dummy pageview data for `tracking_pageviews`, and then fill the `tracking_pageviews_daily` table based on the dummy data. And calculate statistics in `tracking_pageviews_daily` from the dummy data:
 
 ```bash
-php scripts/generate_dummy_pageviews.php
-php scripts/fill_tracking_pageviews_daily.php
-php scripts/calculate_daily_stats.php
+php scripts/plugins/pageview-tracking-core/generate_dummy_pageviews.php
+php scripts/plugins/pageview-tracking-core/fill_tracking_pageviews_daily.php
+php scripts/plugins/pageview-tracking-core/calculate_daily_stats.php
 ```
 
 ## Integration
 
+### WordPress
+Activate the plugins in WordPress:
+1. Activate `pageview-tracking-core` (required)
+2. Activate `pageview-tracking` (for full tracking) or `pageview-tracking-daily` (for daily tracking only)
+
+The plugins will automatically enqueue the JavaScript tracking scripts and handle bot tracking.
+
+### Standalone (Non-WordPress)
 Include the tracking script in your HTML pages:
 
 **For full tracking:**
 ```html
-<script src="/scripts/track_pageview.js"></script>
+<script src="/scripts/plugins/pageview-tracking/track_pageview.js"></script>
 ```
 
 **For daily tracking only:**
 ```html
-<script src="/scripts/track_daily.js"></script>
+<script src="/scripts/plugins/pageview-tracking-daily/track_daily.js"></script>
 ```
 
 **For bot tracking** (add to your PHP pages):
 ```php
-<?php require_once __DIR__ . '/scripts/track_bots.php'; ?>
+<?php require_once __DIR__ . '/scripts/plugins/pageview-tracking-core/track_bots.php'; ?>
 ```

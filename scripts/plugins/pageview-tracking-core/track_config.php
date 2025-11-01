@@ -14,12 +14,13 @@ return [
      *
      * Options:
      * - 'auto' (default): Auto-detect WordPress wp-config.php, then fallback to .env
-     * - Relative path to .env file: '../.env'
      * - Relative path to wp-config.php: '../../../wp-config.php' (WordPress plugin context)
+     * - Relative path to .env file: '../../../.env'
      *
      * Paths are resolved relative to this config file's directory.
      */
     'db_config_file' => 'auto',
+
     /**
      * Individual IP addresses to exclude (IPv4 or IPv6).
      *

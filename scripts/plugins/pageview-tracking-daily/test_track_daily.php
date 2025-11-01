@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/track_bots.php';
+require_once __DIR__ . '/../pageview-tracking-core/track_bots.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">

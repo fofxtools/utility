@@ -99,7 +99,7 @@ declare(strict_types=1);
 
 namespace FOfX\Utility\PageviewTracking;
 
-require_once __DIR__ . '/track_common.php';
+require_once __DIR__ . '/../pageview-tracking-core/track_common.php';
 
 try {
     $config = get_tracking_config();

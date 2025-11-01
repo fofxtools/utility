@@ -1029,13 +1029,15 @@ function get_tracking_config(): array
     // Handle db_config_file setting
     if ($dbConfigFile === 'auto') {
         // Auto-detect: Try wp-config.php if constants aren't defined yet (standard plugin path)
-        if (!defined('DB_HOST') && file_exists(__DIR__ . '/../../../wp-config.php')) {
-            require_once __DIR__ . '/../../../wp-config.php';
+        $wpConfigPath = __DIR__ . '/../../../wp-config.php';
+        if (!defined('DB_HOST') && file_exists($wpConfigPath)) {
+            require_once $wpConfigPath;
         }
 
         // Fallback: Try .env file if constants still not defined (standalone context)
-        if (!defined('DB_HOST') && file_exists(__DIR__ . '/../.env')) {
-            load_env(__DIR__ . '/../.env');
+        $envPath = __DIR__ . '/../../../.env';
+        if (!defined('DB_HOST') && file_exists($envPath)) {
+            load_env($envPath);
         }
     } elseif ($dbConfigFile !== null) {
         // Resolve relative path (relative to track_config.php location = __DIR__)

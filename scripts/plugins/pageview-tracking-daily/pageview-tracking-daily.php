@@ -5,6 +5,7 @@
  * Plugin URI: https://github.com/fofxtools/utility
  * Description: Tracks pageviews (daily only) and bot traffic using JavaScript beacons and server-side PHP tracking.
  * Version: 1.0.0
+ * Requires Plugins: pageview-tracking-core
  * Author: FOfX
  * Author URI: https://github.com/fofxtools/utility
  * License: MIT
@@ -59,7 +60,12 @@ function pvtd_track_bot_pageview()
         return;
     }
 
-    $bot_tracking_path = plugin_dir_path(__FILE__) . 'track_bots.php';
+    // Check if core plugin is active
+    if (!function_exists('pvt_core_get_path')) {
+        return;
+    }
+
+    $bot_tracking_path = pvt_core_get_path('track_bots.php');
     if (file_exists($bot_tracking_path)) {
         require_once $bot_tracking_path;
     }

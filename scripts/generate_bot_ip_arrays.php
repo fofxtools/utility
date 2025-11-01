@@ -19,7 +19,7 @@
  *     - bing.com-toolbox-bingbot.json
  *     - whois.arin.net-rest-nets-q-microsoft.json (ARIN registry)
  *
- * Output files (to scripts/):
+ * Output files (to scripts/plugins/pageview-tracking-core/):
  *   - google_ip_ranges.php
  *   - bing_ip_ranges.php
  *
@@ -228,7 +228,7 @@ function generatePhpFile(array $ipv4Ranges, array $ipv6Ranges, string $title, ar
    ───────────────────────────── */
 
 $resourcesDir = __DIR__ . '/../resources';
-$outputDir    = __DIR__;
+$outputDir    = __DIR__ . '/plugins/pageview-tracking-core';
 
 // Configuration: bot sources
 $bots = [
