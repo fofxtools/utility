@@ -26,7 +26,7 @@ return [
      *
      * e.g. admin IP, banned IPs, etc.
      *
-     * Example: ['192.168.1.100', '2001:db8::1']
+     * Example: ['127.0.0.1', '192.168.1.100', '2001:db8::1']
      */
     'exclude_ips' => [],
 

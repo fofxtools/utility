@@ -48,6 +48,21 @@ This creates:
 - `scripts/plugins/pageview-tracking-core/google_ip_ranges.php`
 - `scripts/plugins/pageview-tracking-core/bing_ip_ranges.php`
 
+## track_common.php - Shared Functions
+
+Shared functions for all tracking scripts:
+- `is_internal_page($url)` - Check if URL is an internal page
+- `is_googlebot_ua($userAgent)` - Check if user agent is Googlebot
+- `is_bingbot_ua($userAgent)` - Check if user agent is Bingbot
+- `is_googlebot_ip($ip)` - Check if IP is Googlebot (only 'goog' source)
+- `is_google_ip($ip)` - Check if IP is any Google IP (all sources)
+- `is_bingbot_ip($ip)` - Check if IP is Bingbot (only 'bingbot' source)
+- `is_microsoft_ip($ip)` - Check if IP is any Microsoft IP (all sources)
+- `is_ip_excluded($ip)` - Check if IP is excluded according to `track_config.php`
+- `is_user_agent_excluded($userAgent)` - Check if user agent is excluded according to `track_config.php`
+- `is_excluded($ip, $userAgent)` - Check if IP or user agent is excluded according to `track_config.php`
+- `get_tracking_config()` - Parse request data, create PDO connection, and return tracking configuration array
+
 ## WordPress Plugins
 
 The tracking scripts are organized as three WordPress plugins in `scripts/plugins/`:
@@ -129,4 +144,18 @@ Include the tracking script in your HTML pages:
 **For bot tracking** (add to your PHP pages):
 ```php
 <?php require_once __DIR__ . '/scripts/plugins/pageview-tracking-core/track_bots.php'; ?>
+```
+
+### Configuration
+
+The tracking plugins can be configured by editing `scripts/plugins/pageview-tracking-core/track_config.php`.
+
+You can set the database configuration file path. The default is to auto-detect WordPress `wp-config.php`, then fallback to `.env`. You can also specify a relative path to a custom `wp-config.php` or `.env` file.
+
+You can also set the exclusion lists for IPs, CIDR ranges, and user agents in `track_config.php`. e.g.:
+```php
+'exclude_ips' => ['127.0.0.1', '2001:db8::1'],
+'exclude_ips_cidr' => ['192.168.1.0/24', '2001:db8::/32'],
+'exclude_user_agents_exact' => ['BadBot/1.0', 'Scraper/2.0'],
+'exclude_user_agents_substring' => ['badbot', 'scraper'],
 ```
