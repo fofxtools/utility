@@ -29,6 +29,7 @@ See usage examples in:
 - [docs/usage-AmazonProductPageParser.md](docs/usage-AmazonProductPageParser.md)
 - [docs/usage-AmazonBrowseNodeImporter.md](docs/usage-AmazonBrowseNodeImporter.md)
 - [docs/usage-tracking.md](docs/usage-tracking.md)
+- [docs/wordpress-php-sdk.md](docs/wordpress-php-sdk.md)
 
 ### Extracting and Filtering Embedded JSON from HTML
 
@@ -118,6 +119,12 @@ To use PHPStan for static analysis:
 
 ```bash
 composer phpstan
+```
+
+To run PHPStan on the `tests` folder:
+
+```bash
+composer phpstan tests
 ```
 
 To use PHP-CS-Fixer for code style:
