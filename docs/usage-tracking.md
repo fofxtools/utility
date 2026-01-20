@@ -148,6 +148,27 @@ Include the tracking script in your HTML pages:
 
 ### Configuration
 
+#### Database Configuration
+
+The tracking system uses dedicated constants to avoid conflicts with WordPress database settings. Add these to your `wp-config.php` or `.env` file:
+
+```php
+// Enable/disable tracking (optional, defaults to enabled if not defined)
+define('TRACKING_ENABLED', true);
+
+// Tracking database credentials (required)
+define('TRACKING_DB_HOST', 'localhost');
+define('TRACKING_DB_NAME', 'tracking_database');
+define('TRACKING_DB_USER', 'tracking_user');
+define('TRACKING_DB_PASSWORD', 'tracking_password');
+```
+
+**Why separate constants?**
+- Allows using a different database for tracking across multiple WordPress sites
+- Prevents conflicts with WordPress's `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+
+#### Track Config File
+
 The tracking plugins can be configured by editing `scripts/plugins/pageview-tracking-core/track_config.php`.
 
 You can set the database configuration file path. The default is to auto-detect WordPress `wp-config.php`, then fallback to `.env`. You can also specify a relative path to a custom `wp-config.php` or `.env` file.

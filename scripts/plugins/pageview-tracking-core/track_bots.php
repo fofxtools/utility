@@ -11,6 +11,13 @@ try {
 } catch (\Throwable $e) {
     conditional_error_log('track_bots.php get_tracking_config() error: ' . $e->getMessage());
 
+    // Use return instead of exit as this file is included via PHP and is not an HTTP entry point
+    // Using exit would kill the HTTP request lifecycle
+    return;
+}
+
+// Exit gracefully if tracking is disabled
+if (!$config['tracking_enabled']) {
     return;
 }
 

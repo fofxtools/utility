@@ -106,6 +106,13 @@ try {
 } catch (\Throwable $e) {
     conditional_error_log('track_pageview.php get_tracking_config() error: ' . $e->getMessage());
     http_response_code(500);
+
+    // Use exit instead of return as this file is a direct HTTP entry point rather than included via PHP
+    exit;
+}
+
+// Exit gracefully if tracking is disabled
+if (!$config['tracking_enabled']) {
     exit;
 }
 

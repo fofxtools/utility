@@ -1030,13 +1030,13 @@ function get_tracking_config(): array
     if ($dbConfigFile === 'auto') {
         // Auto-detect: Try wp-config.php if constants aren't defined yet (standard plugin path)
         $wpConfigPath = __DIR__ . '/../../../wp-config.php';
-        if (!defined('DB_HOST') && file_exists($wpConfigPath)) {
+        if (!defined('TRACKING_DB_HOST') && file_exists($wpConfigPath)) {
             require_once $wpConfigPath;
         }
 
         // Fallback: Try .env file if constants still not defined (standalone context)
         $envPath = __DIR__ . '/../../../.env';
-        if (!defined('DB_HOST') && file_exists($envPath)) {
+        if (!defined('TRACKING_DB_HOST') && file_exists($envPath)) {
             load_env($envPath);
         }
     } elseif ($dbConfigFile !== null) {
@@ -1055,58 +1055,69 @@ function get_tracking_config(): array
     }
     // If $dbConfigFile is null, skip loading (use already-defined constants only)
 
-    // Check if WordPress constants are defined (either already loaded or from files above)
-    if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER') && defined('DB_PASSWORD')) {
+    // Check if tracking constants are defined (either already loaded or from files above)
+    if (defined('TRACKING_DB_HOST') && defined('TRACKING_DB_NAME') && defined('TRACKING_DB_USER') && defined('TRACKING_DB_PASSWORD')) {
         // Password can be blank, others should not be
-        if (constant('DB_HOST') && constant('DB_NAME') && constant('DB_USER')) {
-            $dbHost = constant('DB_HOST');
-            $dbName = constant('DB_NAME');
-            $dbUser = constant('DB_USER');
-            $dbPass = constant('DB_PASSWORD');
+        if (constant('TRACKING_DB_HOST') && constant('TRACKING_DB_NAME') && constant('TRACKING_DB_USER')) {
+            $dbHost = constant('TRACKING_DB_HOST');
+            $dbName = constant('TRACKING_DB_NAME');
+            $dbUser = constant('TRACKING_DB_USER');
+            $dbPass = constant('TRACKING_DB_PASSWORD');
         }
     }
     // Check for environment variables (from .env file)
     // Password can be blank, others should not be
-    elseif (getenv('DB_HOST') && getenv('DB_DATABASE') && getenv('DB_USERNAME') && getenv('DB_PASSWORD') !== false) {
-        $dbHost = getenv('DB_HOST');
-        $dbName = getenv('DB_DATABASE');
-        $dbUser = getenv('DB_USERNAME');
-        $dbPass = getenv('DB_PASSWORD');
+    elseif (getenv('TRACKING_DB_HOST') && getenv('TRACKING_DB_NAME') && getenv('TRACKING_DB_USER') && getenv('TRACKING_DB_PASSWORD') !== false) {
+        $dbHost = getenv('TRACKING_DB_HOST');
+        $dbName = getenv('TRACKING_DB_NAME');
+        $dbUser = getenv('TRACKING_DB_USER');
+        $dbPass = getenv('TRACKING_DB_PASSWORD');
     }
 
-    if (empty($dbHost) || empty($dbName) || empty($dbUser) || $dbPass === null) {
-        throw new \RuntimeException('No database credentials found.');
+    if (!defined('TRACKING_ENABLED')) {
+        throw new \RuntimeException('TRACKING_ENABLED is not defined.');
     }
 
-    $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4", $dbUser, $dbPass);
-    // Enable exceptions so try/catch blocks work (PDO defaults to silent errors)
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $trackingEnabled = (constant('TRACKING_ENABLED') === true);
+
+    if ($trackingEnabled) {
+        if (empty($dbHost) || empty($dbName) || empty($dbUser) || $dbPass === null) {
+            throw new \RuntimeException('No database credentials found.');
+        }
+
+        $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4", $dbUser, $dbPass);
+        // Enable exceptions so try/catch blocks work (PDO defaults to silent errors)
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } else {
+        $pdo = null;
+    }
 
     return [
-        'raw'             => $raw,
-        'payload'         => $payload,
-        'type'            => $type,
-        'view_id'         => $viewId,
-        'url'             => $url,
-        'referrer'        => $referrer,
-        'language'        => $language,
-        'timezone'        => $timezone,
-        'user_agent'      => $userAgent,
-        'domain'          => $domain,
-        'viewport_width'  => $viewportWidth,
-        'viewport_height' => $viewportHeight,
-        'now_ms'          => $nowMs,
-        'min_ms'          => $minMs,
-        'max_ms'          => $maxMs,
-        'ts_pageview_ms'  => $tsPageviewMs,
-        'ts_metrics_ms'   => $tsMetricsMs,
-        'ttfb_ms'         => $ttfbMs,
-        'dcl_ms'          => $dclMs,
-        'load_ms'         => $loadMs,
-        'pageview_date'   => $pageviewDate,
-        'ip'              => $ip,
-        'is_internal'     => $isInternal,
-        'category'        => $category,
-        'pdo'             => $pdo,
+        'raw'              => $raw,
+        'payload'          => $payload,
+        'type'             => $type,
+        'view_id'          => $viewId,
+        'url'              => $url,
+        'referrer'         => $referrer,
+        'language'         => $language,
+        'timezone'         => $timezone,
+        'user_agent'       => $userAgent,
+        'domain'           => $domain,
+        'viewport_width'   => $viewportWidth,
+        'viewport_height'  => $viewportHeight,
+        'now_ms'           => $nowMs,
+        'min_ms'           => $minMs,
+        'max_ms'           => $maxMs,
+        'ts_pageview_ms'   => $tsPageviewMs,
+        'ts_metrics_ms'    => $tsMetricsMs,
+        'ttfb_ms'          => $ttfbMs,
+        'dcl_ms'           => $dclMs,
+        'load_ms'          => $loadMs,
+        'pageview_date'    => $pageviewDate,
+        'ip'               => $ip,
+        'is_internal'      => $isInternal,
+        'category'         => $category,
+        'tracking_enabled' => $trackingEnabled,
+        'pdo'              => $pdo,
     ];
 }
