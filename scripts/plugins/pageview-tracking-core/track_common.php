@@ -152,6 +152,13 @@ function is_internal_page(string $url): int
  *
  * Uses Monolog/PSR-3 severity hierarchy (higher number = more severe).
  *
+ * Uses PHP's error_log() which writes to the default error log location.
+ * Common default locations:
+ *
+ * - Apache: /var/log/apache2/error.log (or /var/log/apache2/[site]-error.log)
+ * - Nginx: /var/log/nginx/[site].error.log (PHP-FPM stderr forwarded to Nginx)
+ * - LiteSpeed:  /usr/local/lsws/logs/error.log (or /var/log/lsws/error.log)
+ *
  * @param string $message The error message to log
  *
  * @return void
@@ -1074,11 +1081,14 @@ function get_tracking_config(): array
         $dbPass = getenv('TRACKING_DB_PASSWORD');
     }
 
-    if (!defined('TRACKING_ENABLED')) {
+    // Check for TRACKING_ENABLED constant or environment variable
+    if (defined('TRACKING_ENABLED')) {
+        $trackingEnabled = (constant('TRACKING_ENABLED') === true);
+    } elseif (getenv('TRACKING_ENABLED') !== false) {
+        $trackingEnabled = (getenv('TRACKING_ENABLED') === 'true');
+    } else {
         throw new \RuntimeException('TRACKING_ENABLED is not defined.');
     }
-
-    $trackingEnabled = (constant('TRACKING_ENABLED') === true);
 
     if ($trackingEnabled) {
         if (empty($dbHost) || empty($dbName) || empty($dbUser) || $dbPass === null) {
